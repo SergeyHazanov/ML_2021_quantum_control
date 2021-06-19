@@ -49,9 +49,11 @@ class TLSSimulation:
         """
         Simulate the time evolution of the qubit.
         """
+        # Find a way to both store states and get evaluation operators (e_ops).
+        self.simulation = qt.sesolve(H=self.H, psi0=self.initial_state, tlist=self.times)
+        self.final_state = self.simulation.states[-1]
         self.simulation = qt.sesolve(H=self.H, psi0=self.initial_state, tlist=self.times,
                                      e_ops=[qt.sigmax(), qt.sigmay(), qt.sigmaz()])
-        self.final_state = self.simulation.state[-1]
 
     def draw_trajectory(self):
         """
