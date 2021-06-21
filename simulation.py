@@ -6,15 +6,19 @@ import matplotlib.pyplot as plt
 class TLSSimulation:
     """ Simulate time evolution of a two level system subjected to an external driving."""
     def __init__(self, **kwargs):
+
         # General parameters:
         self.dimensions = 2
+
         # Hamiltonian:
         self.H = []
         self.hamiltonian_type = None
+
         # Temporal parameters:
         self.duration = kwargs.pop('duration')
         self.time_step = kwargs.pop('time_step')
         self.times = np.arange(0, self.duration, self.time_step)
+
         # State parameters:
         self.initial_state = None
         self.final_dm = None
@@ -272,7 +276,9 @@ def simulate_single_qubit(centers, amplitudes, widths):
     :param centers: The centers of the three Gaussian pulses (in the x, y and z direction), [c_x, c_y, c_z].
     :param amplitudes: The amplitudes of the three Gaussian pulses, [a_x, a_y, a_z].
     :param widths: The widths of the three Gaussian pulses, [w_x, w_y, w_z].
-    :return: The final density matrix of the qubit in the format: array([rho_00, rho01; rho_10, rho_11]).
+    :return: The final density matrix of the qubit in the format: array([rho_00, rho01; rho_10, rho_11]) and a list of
+             lists containing (gaussian envelope, direction).
+             Note that the envelope functions require an 'arg' input (can be set to None).
     """
 
     sim_params = {'duration': 10,
@@ -292,7 +298,7 @@ def simulate_single_qubit(centers, amplitudes, widths):
                                                                     'width': widths[2]})
     sim.simulate(store_trajectory=False)
 
-    return sim.final_dm.data.A
+    return sim.final_dm.data.A, sim.envelopes
 
 
 def simulate_two_qubits(centers, amplitudes, widths):
@@ -307,7 +313,9 @@ def simulate_two_qubits(centers, amplitudes, widths):
     :param centers: The centers of the three Gaussian pulses (in the x, y and z direction), [c_x, c_y, c_z].
     :param amplitudes: The amplitudes of the three Gaussian pulses, [a_x, a_y, a_z].
     :param widths: The widths of the three Gaussian pulses, [w_x, w_y, w_z].
-    :return: The final density matrix of the second qubit in the format: array([rho_00, rho01; rho_10, rho_11]).
+    :return: The final density matrix of the second qubit in the format: array([rho_00, rho01; rho_10, rho_11]) and a
+             lists of tuples containing (gaussian envelope, direction).
+             Note that the envelope functions require an 'arg' input (can be set to None).
     """
 
     sim_params = {'duration': 10,
@@ -329,7 +337,7 @@ def simulate_two_qubits(centers, amplitudes, widths):
                                                                     'width': widths[2]})
     sim.simulate(store_trajectory=False)
 
-    return sim.final_dm.data.A
+    return sim.final_dm.data.A, sim.envelopes
 
 
 if __name__ == '__main__':
@@ -350,7 +358,5 @@ if __name__ == '__main__':
     # sim.draw_pulse()
 
     """ Single/Two qubits Wrapper simulation example """
-    output = simulate_single_qubit(centers=[4, 5, 6], amplitudes=[0.8, 1, 1.2], widths=[0.4, 0.5, 0.6])
-    # output = simulate_two_qubits(centers=[4, 5, 6], amplitudes=[0.8, 1, 1.2], widths=[0.4, 0.5, 0.6])
-    print(output[1, 1])
-
+    output, envelopes = simulate_single_qubit(centers=[4, 5, 6], amplitudes=[0.8, 1, 1.2], widths=[0.4, 0.5, 0.6])
+    # output, envelopes = simulate_two_qubits(centers=[4, 5, 6], amplitudes=[0.8, 1, 1.2], widths=[0.4, 0.5, 0.6])
