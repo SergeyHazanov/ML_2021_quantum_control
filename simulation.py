@@ -200,4 +200,3 @@ if __name__ == '__main__':
     # widths = [0.4, 0.5, 0.6]
     # output = simulate_single_qubit(centers, amplitudes, widths)
     # print(output)
-
