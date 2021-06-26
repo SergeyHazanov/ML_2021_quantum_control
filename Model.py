@@ -1,30 +1,32 @@
 import torch.nn as nn
-
-NETWORK_INPUT_SIZE = 2
-NETWORK_OUTPUT_SIZE = 6
-LAYER_SIZES = [80] * 3
+import torch
 
 
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
+class Network(nn.Module):
+    def __init__(self, env):
+        super().__init__()
 
-        self.hidden_layers = nn.ModuleList()
-        self.layer1 = nn.Linear(NETWORK_INPUT_SIZE, LAYER_SIZES[0])
+        in_features = env.INPUT_SIZE
+        out_features = env.N_DISCRETE_ACTIONS
 
-        for hidden_i in range(len(LAYER_SIZES) - 1):
-            self.hidden_layers.append(nn.Linear(LAYER_SIZES[hidden_i], LAYER_SIZES[hidden_i + 1]))
+        hidden_size = 128
 
-        self.layer2 = nn.Linear(LAYER_SIZES[-1], NETWORK_OUTPUT_SIZE)
-        self.activation = nn.ReLU()
+        self.net = nn.Sequential(
+            nn.Linear(in_features, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, env.N_DISCRETE_ACTIONS)
+        )
 
     def forward(self, x):
-        out = self.layer1(x)
-        out = self.activation(out)
+        return self.net(x)
 
-        for layer in self.hidden_layers:
-            out = layer(out)
-            out = self.activation(out)
+    def act(self, obs):
+        obs_t = torch.as_tensor(obs, dtype=torch.float32)
+        q_values = self(obs_t.unsqueeze(0))
 
-        out = self.layer2(out)
-        return out
+        max_q_index = torch.argmax(q_values, dim=1)[0]
+        action = max_q_index.detach().item()
+
+        return action
