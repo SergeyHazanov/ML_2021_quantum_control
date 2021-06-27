@@ -7,7 +7,7 @@ class Network(nn.Module):
         super().__init__()
 
         in_features = env.INPUT_SIZE
-        out_features = env.N_DISCRETE_ACTIONS
+        out_features = env.N_ACTIONS
 
         hidden_size = 128
 
@@ -16,7 +16,7 @@ class Network(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, env.N_DISCRETE_ACTIONS)
+            nn.Linear(hidden_size, out_features)
         )
 
     def forward(self, x):
