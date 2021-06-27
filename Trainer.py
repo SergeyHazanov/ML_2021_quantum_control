@@ -19,8 +19,9 @@ EPSILON_DECAY = 10000
 TARGET_UPDATE_FREQ = 1000
 LEARNING_RATE = 5e-4
 
-BOOST_CONTROL = 0.01
-AMPLITUDE_ERR = 0.01
+A_BOOST_CONTROL = 0.01
+T_BOOST_CONTROL = 0.01
+AMPLITUDE_ERR = 0.1
 
 THETA = 0
 THETA_DOT = 1
@@ -50,7 +51,6 @@ class QuantumEnvironment:
 
     def __init__(self, energy_gap, runtime, dt, skips):
         """
-        Add driving of the form envelope(t)*n*sigma to the Hamiltonian.
         :param energy_gap: Induced energy gap. Qobj type. i.e. w0*sigmaz()
         :param runtime: duration of the simulation
         :param dt: time step
@@ -69,11 +69,12 @@ class QuantumEnvironment:
 
         self.ham_parameters = [0] * 4
 
-    def state_to_vec(self):
+    def __state_to_vec(self):
         """
         Vector bloch representation of the state self.state
         :return: list of expectation values for the state self.state.
         """
+        # TODO - make this not swedish
         psi = self.state
         psi_d = self.state.dag()
         x = psi_d * sigmax() * psi
@@ -83,9 +84,10 @@ class QuantumEnvironment:
 
     def fidelity(self):
         """
-        Fidelity with respect to |1> (which is the target state)
+        fidelity with respect to |1> (which is the target state)
         :return: F(|ψ>,|1>) of type float.
         """
+        # TODO - make this not swedish
         psi = self.state
         down = qutip.basis(2, 1)
         proj = (psi.dag() * down)[0][0][0]
@@ -108,8 +110,12 @@ class QuantumEnvironment:
         theta_boost = (action // 2 - 0.5) * 2
         amp_boost = (action % 2 - 0.5) * 2
 
-        self.ham_parameters[THETA_DOT] += theta_boost * BOOST_CONTROL
-        self.ham_parameters[AMP_DOT] += amp_boost * BOOST_CONTROL
+        # TODO - this part is also messy and will be cleaned up + it is repetitive
+        #        since it also appears in the 'reset' method.
+        #        ALSO - we need to try to apply usage of self.skips.
+        #               If we won't like using it, we can set it to 1.
+        self.ham_parameters[THETA_DOT] += theta_boost * T_BOOST_CONTROL
+        self.ham_parameters[AMP_DOT] += amp_boost * A_BOOST_CONTROL
 
         self.ham_parameters[THETA] += self.ham_parameters[THETA_DOT] * self.dt
         self.ham_parameters[AMP] += abs(self.ham_parameters[AMP_DOT] * self.dt)
@@ -119,35 +125,27 @@ class QuantumEnvironment:
         theta_d = self.ham_parameters[THETA_DOT]
         theta = self.ham_parameters[THETA]
 
-        old_fidelity = self.fidelity()
-
         # We want a high cost for high amps and high frequencies
         reward = -(amp * amp + theta_d * theta_d) * AMPLITUDE_ERR
 
-        H = self.energy_gap + amp * (np.cos(theta) * sigmax() + np.sin(theta) * sigmay())
-        U = (1j * H * self.dt).expm()
-        self.state = (U * self.state).unit()
-        new_fidelity = self.fidelity()
+        hamiltonian = self.energy_gap + amp * (np.cos(theta) * sigmax() + np.sin(theta) * sigmay())
+        unitary_op = (1j * hamiltonian * self.dt).expm()
+        self.state = (unitary_op * self.state).unit()
 
-        fidelity_shift = new_fidelity - old_fidelity
-
-        reward += fidelity_shift
-        # I made this condition to punish a decrease in fidelity.
-        # If you understand why, to save space, you can change it to
-        # reward += (1 + fidelity_shift < 0) * fidelity_shift
-        if fidelity_shift < 0:
-            reward += fidelity_shift
+        reward += self.fidelity()
 
         done = (self.steps * self.dt) >= self.runtime
 
         # This is what the neural network sees
-        observation = self.state_to_vec() + [amp * np.cos(theta),
+        observation = self.__state_to_vec() + [amp * np.cos(theta),
                                              amp * np.sin(theta),
                                              amp_d,
                                              theta_d]
 
-        # Some useless parameter resulting from a previous implementation.
+        # Some useless parameter resulting from a previous implementation where I tried
+        # to inherit from gym.env class.
         info = {}
+
         return observation, reward, done, info
 
     def reset(self):
@@ -169,7 +167,7 @@ class QuantumEnvironment:
         amp_d = self.ham_parameters[AMP_DOT]
         theta_d = self.ham_parameters[THETA_DOT]
         theta = self.ham_parameters[THETA]
-        observation = self.state_to_vec() + [amp * np.cos(theta),
+        observation = self.__state_to_vec() + [amp * np.cos(theta),
                                              amp * np.sin(theta),
                                              amp_d,
                                              theta_d]
@@ -187,22 +185,21 @@ class Trainer:
     Supervises the the training of a given network.
     """
 
-    def __init__(self, net):
-        energy_gap, runtime, dt, skips = 1, 20, 0.01, 5
+    def __init__(self, energy_gap, runtime, dt, skips):
         self.env = QuantumEnvironment(energy_gap, runtime, dt, skips)
 
-        self.replay_buffer = deque(maxlen=BUFFER_SIZE)
-        self.rew_buffer = deque(maxlen=BUFFER_SIZE)
+        self.__replay_buffer = deque(maxlen=BUFFER_SIZE)
+        self.__rew_buffer = deque(maxlen=BUFFER_SIZE)
 
-        self.episode_reward = 0.0
+        self.__episode_reward = 0.0
 
         self.online_net = Network(self.env)
         self.target_net = Network(self.env)
 
         self.target_net.load_state_dict(self.online_net.state_dict())
-        self.initialize_buffers()
+        self.__initialize_buffers()
 
-    def initialize_buffers(self):
+    def __initialize_buffers(self):
         """
         Fills the buffers with transitions and corresponding rewards.
         """
@@ -216,8 +213,8 @@ class Trainer:
             transition = (obs, action, rew, done, new_obs)
             obs = new_obs
 
-            self.replay_buffer.append(transition)
-            self.rew_buffer.append(rew)
+            self.__replay_buffer.append(transition)
+            self.__rew_buffer.append(rew)
 
             if done:
                 obs = self.env.reset()
@@ -236,7 +233,7 @@ class Trainer:
 
         optimizer = torch.optim.Adam(self.online_net.parameters(), lr=LEARNING_RATE)
 
-        # The following loop never stops.
+        # TODO - The following loop never stops. we need to apply a apply a save network condition
         for step in itertools.count():
             epsilon = np.interp(step, [0, EPSILON_DECAY], [EPSILON_START, EPSILON_END])
 
@@ -251,18 +248,18 @@ class Trainer:
 
             new_obs, rew, done, info = self.env.step(action)
             transition = (obs, action, rew, done, new_obs)
-            self.replay_buffer.append(transition)
+            self.__replay_buffer.append(transition)
             obs = new_obs
 
-            self.episode_reward += rew
+            self.__episode_reward += rew
 
             if done:
-                self.rew_buffer.append(self.env.fidelity())
+                self.__rew_buffer.append(self.env.fidelity())
                 obs = self.env.reset()
-                self.episode_reward = 0.0
+                self.__episode_reward = 0.0
 
             # Start gradient step
-            transitions = random.sample(self.replay_buffer, BATCH_SIZE)
+            transitions = random.sample(self.__replay_buffer, BATCH_SIZE)
 
             obses = np.asarray([t[0] for t in transitions])
             actions = np.asarray([t[1] for t in transitions])
@@ -282,7 +279,6 @@ class Trainer:
             # thinks is the best action.
             max_target_q_values = target_q_values.max(dim=1, keepdim=True)[0]
 
-
             targets = rews_t + GAMMA * (1 - dones_t) * max_target_q_values
 
             # Compute loss
@@ -301,8 +297,8 @@ class Trainer:
             if step % TARGET_UPDATE_FREQ == 0:
                 self.target_net.load_state_dict(self.online_net.state_dict())
 
-            # # logging
-            # if step % 10000 == 0:
-            #     print()
-            #     print('Step ', step)
-            #     print('Avg rew ', np.mean(self.rew_buffer))
+            # logging
+            step_skips = 70000
+            if step % step_skips == 0:
+                print('Step ', step_skips / 1000, 'k')
+                print('Avg rew ', np.mean(self.__rew_buffer), '\n')
