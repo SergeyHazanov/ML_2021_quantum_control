@@ -1,6 +1,5 @@
 from torch import nn
 import torch
-import gym
 from collections import deque
 import itertools
 import numpy as np
@@ -138,9 +137,9 @@ class QuantumEnvironment:
 
         # This is what the neural network sees
         observation = self.__state_to_vec() + [amp * np.cos(theta),
-                                             amp * np.sin(theta),
-                                             amp_d,
-                                             theta_d]
+                                               amp * np.sin(theta),
+                                               amp_d,
+                                               theta_d]
 
         # Some useless parameter resulting from a previous implementation where I tried
         # to inherit from gym.env class.
@@ -168,9 +167,9 @@ class QuantumEnvironment:
         theta_d = self.ham_parameters[THETA_DOT]
         theta = self.ham_parameters[THETA]
         observation = self.__state_to_vec() + [amp * np.cos(theta),
-                                             amp * np.sin(theta),
-                                             amp_d,
-                                             theta_d]
+                                               amp * np.sin(theta),
+                                               amp_d,
+                                               theta_d]
         return observation
 
     def sample(self):
@@ -214,7 +213,8 @@ class Trainer:
             obs = new_obs
 
             self.__replay_buffer.append(transition)
-            self.__rew_buffer.append(rew)
+            # this following isn't actually correct but it doesnt affect the training.
+            self.__rew_buffer.append(self.env.fidelity())
 
             if done:
                 obs = self.env.reset()
@@ -234,6 +234,7 @@ class Trainer:
         optimizer = torch.optim.Adam(self.online_net.parameters(), lr=LEARNING_RATE)
 
         # TODO - The following loop never stops. we need to apply a apply a save network condition
+        # TODO - make this work with cuda if it is even possible.
         for step in itertools.count():
             epsilon = np.interp(step, [0, EPSILON_DECAY], [EPSILON_START, EPSILON_END])
 
