@@ -1,12 +1,13 @@
 from torch import nn
 import torch
+
 from collections import deque
 import itertools
 import numpy as np
 import random
-import qutip
-from qutip import sigmax, sigmay, sigmaz
+
 from Model import Network
+from simulation import QuantumEnvironment
 
 GAMMA = 0.99
 BATCH_SIZE = 32
@@ -18,165 +19,7 @@ EPSILON_DECAY = 10000
 TARGET_UPDATE_FREQ = 1000
 LEARNING_RATE = 5e-4
 
-A_BOOST_CONTROL = 0.01
-T_BOOST_CONTROL = 0.01
-AMPLITUDE_ERR = 0.1
 
-THETA = 0
-THETA_DOT = 1
-AMP = 2
-AMP_DOT = 3
-
-
-class QuantumEnvironment:
-    """
-    The model is implemeneted as such - we have some energy gap w0. We induce a Hamiltonian in
-    the x-y plane whose parameters are the angle θ and amplitude A. The model keeps θ_dot and
-    A_dot. At every time step, the environment user is asked whether he wants, for both θ_dot
-    and A_dot, whether he wants to increase/decrease them. The parameters are updated, a time
-    step is applied.
-    The inputs to the network are:
-        <σ_x>,
-        <σ_y>,
-        <σ_z>,
-        A_x,
-        A_y,
-        theta_dot,
-        A_dot.
-    """
-
-    N_ACTIONS = 4
-    INPUT_SIZE = 7
-
-    def __init__(self, energy_gap, runtime, dt, skips):
-        """
-        :param energy_gap: Induced energy gap. Qobj type. i.e. w0*sigmaz()
-        :param runtime: duration of the simulation
-        :param dt: time step
-        :param skips: Number of time steps passed between each action.
-                      This was not implemented yet.
-        :return:
-        """
-        self.energy_gap = energy_gap * sigmaz()
-
-        self.dt = dt
-        self.runtime = runtime
-        self.steps = 0
-
-        self.skips = skips
-        self.state = qutip.basis(2, 0)
-
-        self.ham_parameters = [0] * 4
-
-    def __state_to_vec(self):
-        """
-        Vector bloch representation of the state self.state
-        :return: list of expectation values for the state self.state.
-        """
-        # TODO - make this not swedish
-        psi = self.state
-        psi_d = self.state.dag()
-        x = psi_d * sigmax() * psi
-        y = psi_d * sigmay() * psi
-        z = psi_d * sigmaz() * psi
-        return [abs(x[0][0][0]), abs(y[0][0][0]), abs(z[0][0][0])]
-
-    def fidelity(self):
-        """
-        fidelity with respect to |1> (which is the target state)
-        :return: F(|ψ>,|1>) of type float.
-        """
-        # TODO - make this not swedish
-        psi = self.state
-        down = qutip.basis(2, 1)
-        proj = (psi.dag() * down)[0][0][0]
-        return abs(proj * proj)
-
-    def step(self, action):
-        """
-        Perform a single action: 
-                dθ/dt increase/decrease
-                dA/dt increase/decrease
-        so 2*2 actions. Observe the ad
-        :param action: an integer n∈[
-        :return:
-        """
-        self.steps += 1
-        # Update Hamiltonian parameters (including its derivatives)
-        #        0  1  2  3
-        # θ_dot  -  -  +  +
-        # A_dot  -  +  -  +
-        theta_boost = (action // 2 - 0.5) * 2
-        amp_boost = (action % 2 - 0.5) * 2
-
-        # TODO - this part is also messy and will be cleaned up + it is repetitive
-        #        since it also appears in the 'reset' method.
-        #        ALSO - we need to try to apply usage of self.skips.
-        #               If we won't like using it, we can set it to 1.
-        self.ham_parameters[THETA_DOT] += theta_boost * T_BOOST_CONTROL
-        self.ham_parameters[AMP_DOT] += amp_boost * A_BOOST_CONTROL
-
-        self.ham_parameters[THETA] += self.ham_parameters[THETA_DOT] * self.dt
-        self.ham_parameters[AMP] += abs(self.ham_parameters[AMP_DOT] * self.dt)
-
-        amp = self.ham_parameters[AMP]
-        amp_d = self.ham_parameters[AMP_DOT]
-        theta_d = self.ham_parameters[THETA_DOT]
-        theta = self.ham_parameters[THETA]
-
-        # We want a high cost for high amps and high frequencies
-        reward = -(amp * amp + theta_d * theta_d) * AMPLITUDE_ERR
-
-        hamiltonian = self.energy_gap + amp * (np.cos(theta) * sigmax() + np.sin(theta) * sigmay())
-        unitary_op = (1j * hamiltonian * self.dt).expm()
-        self.state = (unitary_op * self.state).unit()
-
-        reward += self.fidelity()
-
-        done = (self.steps * self.dt) >= self.runtime
-
-        # This is what the neural network sees
-        observation = self.__state_to_vec() + [amp * np.cos(theta),
-                                               amp * np.sin(theta),
-                                               amp_d,
-                                               theta_d]
-
-        # Some useless parameter resulting from a previous implementation where I tried
-        # to inherit from gym.env class.
-        info = {}
-
-        return observation, reward, done, info
-
-    def reset(self):
-        """
-        Restarts steps and randomizes a state.
-        :return: 7 parameters of the state and Hamiltonian.
-        """
-
-        c1 = 1j * random.random() + random.random()
-        c2 = 1j * random.random() + random.random()
-
-        psi = c1 * qutip.basis(2, 0) + c2 * qutip.basis(2, 1)
-        self.state = psi.unit()
-
-        self.steps = 0
-        self.ham_parameters = list(np.random.uniform(0, 2, 4))
-
-        amp = self.ham_parameters[AMP]
-        amp_d = self.ham_parameters[AMP_DOT]
-        theta_d = self.ham_parameters[THETA_DOT]
-        theta = self.ham_parameters[THETA]
-        observation = self.__state_to_vec() + [amp * np.cos(theta),
-                                               amp * np.sin(theta),
-                                               amp_d,
-                                               theta_d]
-        return observation
-
-    def sample(self):
-        """
-        :return: A random action represented by an integer.
-        """
-        return random.randint(0, self.N_ACTIONS - 1)
 
 
 class Trainer:
@@ -293,7 +136,6 @@ class Trainer:
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
             # update target network
             if step % TARGET_UPDATE_FREQ == 0:
                 self.target_net.load_state_dict(self.online_net.state_dict())

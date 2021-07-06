@@ -2,31 +2,25 @@ import torch.nn as nn
 import torch
 
 
-class Network(nn.Module):
-    def __init__(self, env):
+class PolicyNetwork(nn.Module):
+    def __init__(self):
         super().__init__()
 
-        in_features = env.INPUT_SIZE
-        out_features = env.N_ACTIONS
-
-        hidden_size = 128
-
-        self.net = nn.Sequential(
-            nn.Linear(in_features, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, out_features)
+        self.layers = nn.Sequential(
+            nn.Linear(6*2, 512), nn.ReLU(),
+            nn.Linear(512, 100), nn.ReLU(),
+            nn.Linear(100, 2)
         )
 
-    def forward(self, x):
-        return self.net(x)
+    def forward(self, state, previous_state):
+        combined = torch.cat([previous_state, state], dim=1)
+        logits = self.layers(combined)
+        return logits
 
-    def act(self, obs):
-        obs_t = torch.as_tensor(obs, dtype=torch.float32)
-        q_values = self(obs_t.unsqueeze(0))
+    def sample_action(self, state, previous_state):
+        logits = self(state, previous_state)
+        c = torch.distributions.Categorical(logits=logits)
+        action = int(c.sample().numpy()[0])
+        action_prob = float(c.probs[0, action].detach().cpu().numpy())
 
-        max_q_index = torch.argmax(q_values, dim=1)[0]
-        action = max_q_index.detach().item()
-
-        return action
+        return action, action_prob
