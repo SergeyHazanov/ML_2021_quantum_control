@@ -3,14 +3,17 @@ import qutip as qt
 import matplotlib.pyplot as plt
 from qutip import sigmax, sigmay, sigmaz
 import random
+from Model import NET_INPUT_SIZE
 
+THETA_BOOST_CONTROL = 1
+AMP_BOOST_CONTROL = 1
 OMEGA_ERR_FACTOR = 0.1
-THETA_BOOST_CONTROL = 5
+AMP_ERR_FACTOR = 0.1
 
 
 class QuantumEnvironment:
     """
-    The model is implemeneted as such - we have some energy gap w0. We induce a Hamiltonian in
+    The model is implemented as such - we have some energy gap w0. We induce a Hamiltonian in
     the x-y plane whose parameters are the angle θ and amplitude A. The model keeps θ_dot and
     A_dot. At every time step, the environment user is asked whether he wants, for both θ_dot
     and A_dot, whether he wants to increase/decrease them. The parameters are updated, a time
@@ -25,8 +28,7 @@ class QuantumEnvironment:
         A_dot.
     """
 
-    N_ACTIONS = 2
-    INPUT_SIZE = 6
+    N_ACTIONS = 4
 
     def __init__(self, energy_gap, runtime, dt):
         """
@@ -37,7 +39,9 @@ class QuantumEnvironment:
                       This was not implemented yet.
         :return:
         """
-        self.energy_gap = 0.5 * energy_gap
+
+        # For know we are working in the int. picture, thus the zero.
+        self.energy_gap = 0 * energy_gap
 
         self.dt = dt
         self.runtime = runtime
@@ -47,39 +51,14 @@ class QuantumEnvironment:
 
         self.ham_theta = 0.0
         self.ham_omega = 0.0
-
-    def xy_amp(self):
-        "Yields a smooth rectangle where the amp in xy charges"
-        t = self.dt * self.steps
-        T = self.runtime
-
-        shift = 1
-        slope = 10
-        target_amp = 1
-
-        if t > T / 2:
-            amp = np.tanh(slope * (T - shift - t))
-        else:
-            amp = np.tanh(slope * (t - shift))
-        amp += 1
-        amp = target_amp * amp / 2
-        return amp
+        self.ham_amp = 0.0
 
     def __state_to_vec(self):
         """
         Bloch vector representation of the state self.state
         :return: list of expectation values for the state self.state.
         """
-        # TODO - make this not swedish - Done!
-        # psi = self.state
-        # psi_d = self.state.dag()
-        # x = psi_d * sigmax() * psi
-        # y = psi_d * sigmay() * psi
-        # z = psi_d * sigmaz() * psi
-        # return [float(x[0][0][0]), float(y[0][0][0]), float(z[0][0][0])]
-
         x, y, z = qt.expect(sigmax(), self.state), qt.expect(sigmay(), self.state), qt.expect(sigmaz(), self.state)
-
         return [x, y, z]
 
     def fidelity(self):
@@ -87,12 +66,6 @@ class QuantumEnvironment:
         fidelity with respect to |1> (which is the target state)
         :return: F(|ψ>,|1>) of type float.
         """
-        # TODO - make this not swedish - Done!
-        # psi = self.state
-        # down = qt.basis(2, 1)
-        # proj = (psi.dag() * down)[0][0][0]
-        # return abs(proj * proj)
-
         return qt.fidelity(self.state, qt.basis(2, 1))
 
     def step(self, action):
@@ -104,28 +77,45 @@ class QuantumEnvironment:
         """
         self.steps += 1
 
-        action = (action * 2) - 1
-        self.ham_omega += action * THETA_BOOST_CONTROL
+        if action == 0:
+            self.ham_omega += THETA_BOOST_CONTROL
+            self.ham_amp += AMP_BOOST_CONTROL
+        elif action == 1:
+            self.ham_omega += THETA_BOOST_CONTROL
+            self.ham_amp -= AMP_BOOST_CONTROL
+        elif action == 2:
+            self.ham_omega -= THETA_BOOST_CONTROL
+            self.ham_amp += AMP_BOOST_CONTROL
+        elif action == 3:
+            self.ham_omega -= THETA_BOOST_CONTROL
+            self.ham_amp -= AMP_BOOST_CONTROL
+        else:
+            print('Wrong action value!')
+
         self.ham_theta += self.ham_omega * self.dt
 
-        xy_amp = self.xy_amp()
-        hx = xy_amp * np.cos(self.ham_theta)
-        hy = xy_amp * np.sin(self.ham_theta)
+        hx = self.ham_amp * np.cos(self.ham_theta)
+        hy = self.ham_amp * np.sin(self.ham_theta)
         hz = self.energy_gap
 
         ham_tot = hx * sigmax() + hy * sigmay() + hz * sigmaz()
 
-        # Maybe take linear order of U
-        unitary_op = (- 1j * ham_tot * self.dt).expm()
+        unitary_op = 1 - 1j * ham_tot * self.dt
+
         # Maybe remove unit
         self.state = (unitary_op * self.state).unit()
 
-        reward = self.fidelity() - (self.ham_omega ** 2) * OMEGA_ERR_FACTOR
+        reward = self.fidelity()
+        reward -= (self.ham_omega ** 2) * OMEGA_ERR_FACTOR
+        reward -= (self.ham_amp ** 2) * AMP_ERR_FACTOR
 
         done = (self.steps * self.dt) >= self.runtime
 
         # This is what the neural network sees
         observation = [hx, hy, hz, self.ham_omega] + self.__state_to_vec()
+
+        if len(observation) != NET_INPUT_SIZE:
+            print('Wrong observation size')
 
         # Some useless parameter resulting from a previous implementation where I tried
         # to inherit from gym.env class.
@@ -149,10 +139,9 @@ class QuantumEnvironment:
         self.steps = 0
         self.ham_theta = 0.0
         self.ham_omega = 0.0
-
-        xy_amp = self.xy_amp()
-        hx = xy_amp * np.cos(self.ham_theta)
-        hy = xy_amp * np.sin(self.ham_theta)
+        self.ham_amp = 0.0
+        hx = 0
+        hy = 0
         hz = self.energy_gap
 
         observation = [hx, hy, hz, self.ham_omega] + self.__state_to_vec()

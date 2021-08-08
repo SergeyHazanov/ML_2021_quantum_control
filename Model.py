@@ -1,6 +1,8 @@
 import torch.nn as nn
 import torch
 
+NET_INPUT_SIZE = 7
+
 
 class PolicyNetwork(nn.Module):
     def __init__(self):

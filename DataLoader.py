@@ -10,7 +10,10 @@ class GamesMemoryBank(Dataset):
 
     def __init__(self):
         self.gamma = 1.003
-        self.clear_memory()
+        self.state_history = []
+        self.action_history = []
+        self.action_prob_history = []
+        self.reward_history = []
 
     def clear_memory(self):
         self.state_history = []
@@ -25,7 +28,6 @@ class GamesMemoryBank(Dataset):
         self.reward_history.append(reward)
 
     def compute_reward_history(self):
-
         R = 0
         self.discounted_rewards = []
 
