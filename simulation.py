@@ -4,15 +4,9 @@ import matplotlib.pyplot as plt
 from qutip import sigmax, sigmay, sigmaz
 import random
 
-THETA = 0
-THETA_DOT = 1
-AMP = 2
-AMP_DOT = 3
+OMEGA_ERR_FACTOR = 0.1
+THETA_BOOST_CONTROL = 5
 
-AMPLITUDE_ERR = 0.1
-
-A_BOOST_CONTROL = 0.01
-T_BOOST_CONTROL = 0.01
 
 class QuantumEnvironment:
     """
@@ -31,10 +25,10 @@ class QuantumEnvironment:
         A_dot.
     """
 
-    N_ACTIONS = 4
-    INPUT_SIZE = 7
+    N_ACTIONS = 2
+    INPUT_SIZE = 6
 
-    def __init__(self, energy_gap, runtime, dt, skips):
+    def __init__(self, energy_gap, runtime, dt):
         """
         :param energy_gap: Induced energy gap. Qobj type. i.e. w0*sigmaz()
         :param runtime: duration of the simulation
@@ -43,16 +37,33 @@ class QuantumEnvironment:
                       This was not implemented yet.
         :return:
         """
-        self.energy_gap = 0.5 * energy_gap * sigmaz()
+        self.energy_gap = 0.5 * energy_gap
 
         self.dt = dt
         self.runtime = runtime
         self.steps = 0
 
-        self.skips = skips
         self.state = qt.basis(2, 0)
 
-        self.ham_parameters = [0] * 4
+        self.ham_theta = 0.0
+        self.ham_omega = 0.0
+
+    def xy_amp(self):
+        "Yields a smooth rectangle where the amp in xy charges"
+        t = self.dt * self.steps
+        T = self.runtime
+
+        shift = 1
+        slope = 10
+        target_amp = 1
+
+        if t > T / 2:
+            amp = np.tanh(slope * (T - shift - t))
+        else:
+            amp = np.tanh(slope * (t - shift))
+        amp += 1
+        amp = target_amp * amp / 2
+        return amp
 
     def __state_to_vec(self):
         """
@@ -80,54 +91,35 @@ class QuantumEnvironment:
 
     def step(self, action):
         """
-        Perform a single action:
-                dθ/dt increase/decrease
-                dA/dt increase/decrease
+        Perform a single action: increase or decrease omega.
         so 2*2 actions. Observe the ad
         :param action: an integer
         :return:
         """
         self.steps += 1
-        # Update Hamiltonian parameters (including its derivatives)
-        #        0  1  2  3
-        # θ_dot  -  -  +  +
-        # A_dot  -  +  -  +
-        theta_boost = (action // 2 - 0.5) * 2
-        amp_boost = (action % 2 - 0.5) * 2
 
-        # TODO - this part is also messy and will be cleaned up + it is repetitive
-        #        since it also appears in the 'reset' method.
-        #        ALSO - we need to try to apply usage of self.skips.
-        #               If we won't like using it, we can set it to 1.
-        self.ham_parameters[THETA_DOT] += theta_boost * T_BOOST_CONTROL
-        self.ham_parameters[AMP_DOT] += amp_boost * A_BOOST_CONTROL
+        action = (action * 2) - 1
+        self.ham_omega += action * THETA_BOOST_CONTROL
+        self.ham_theta += self.ham_omega * self.dt
 
-        self.ham_parameters[THETA] += self.ham_parameters[THETA_DOT] * self.dt
-        self.ham_parameters[AMP] += self.ham_parameters[AMP_DOT] * self.dt
-        self.ham_parameters[AMP] = abs(self.ham_parameters[AMP])
+        xy_amp = self.xy_amp()
+        hx = xy_amp * np.cos(self.ham_theta)
+        hy = xy_amp * np.sin(self.ham_theta)
+        hz = self.energy_gap
 
+        ham_tot = hx * sigmax() + hy * sigmay() + hz * sigmaz()
 
-        amp = self.ham_parameters[AMP]
-        amp_d = self.ham_parameters[AMP_DOT]
-        theta_d = self.ham_parameters[THETA_DOT]
-        theta = self.ham_parameters[THETA]
-
-        # We want a high cost for high amps and high frequencies
-        reward = -(amp * amp + theta_d * theta_d) * AMPLITUDE_ERR
-
-        hamiltonian = self.energy_gap + amp * (np.cos(theta) * sigmax() + np.sin(theta) * sigmay())
-        unitary_op = (1j * hamiltonian * self.dt).expm()
+        # Maybe take linear order of U
+        unitary_op = (- 1j * ham_tot * self.dt).expm()
+        # Maybe remove unit
         self.state = (unitary_op * self.state).unit()
 
-        reward += self.fidelity()
+        reward = self.fidelity() - (self.ham_omega ** 2) * OMEGA_ERR_FACTOR
 
         done = (self.steps * self.dt) >= self.runtime
 
         # This is what the neural network sees
-        observation = self.__state_to_vec() + [amp * np.cos(theta),
-                                               amp * np.sin(theta),
-                                               amp_d,
-                                               theta_d]
+        observation = [hx, hy, hz, self.ham_omega] + self.__state_to_vec()
 
         # Some useless parameter resulting from a previous implementation where I tried
         # to inherit from gym.env class.
@@ -143,21 +135,21 @@ class QuantumEnvironment:
 
         c1 = 1j * random.random() + random.random()
         c2 = 1j * random.random() + random.random()
+        c2 = 0
 
         psi = c1 * qt.basis(2, 0) + c2 * qt.basis(2, 1)
         self.state = psi.unit()
 
         self.steps = 0
-        self.ham_parameters = list(np.random.uniform(0, 2, 4))
+        self.ham_theta = 0.0
+        self.ham_omega = 0.0
 
-        amp = self.ham_parameters[AMP]
-        amp_d = self.ham_parameters[AMP_DOT]
-        theta_d = self.ham_parameters[THETA_DOT]
-        theta = self.ham_parameters[THETA]
-        observation = self.__state_to_vec() + [amp * np.cos(theta),
-                                               amp * np.sin(theta),
-                                               amp_d,
-                                               theta_d]
+        xy_amp = self.xy_amp()
+        hx = xy_amp * np.cos(self.ham_theta)
+        hy = xy_amp * np.sin(self.ham_theta)
+        hz = self.energy_gap
+
+        observation = [hx, hy, hz, self.ham_omega] + self.__state_to_vec()
         return observation
 
     def sample(self):
@@ -169,6 +161,7 @@ class QuantumEnvironment:
 
 class TLSSimulation:
     """ Simulate time evolution of a two level system subjected to an external driving."""
+
     def __init__(self, **kwargs):
 
         # General parameters:
@@ -312,7 +305,8 @@ class TLSSimulation:
             for state in self.simulation.states:
                 self.bloch_vectors_a.append([qt.expect(sa_x, state), qt.expect(sa_y, state), qt.expect(sa_z, state)])
                 if self.hamiltonian_type == 'two_qubits':
-                    self.bloch_vectors_b.append([qt.expect(sb_x, state), qt.expect(sb_y, state), qt.expect(sb_z, state)])
+                    self.bloch_vectors_b.append(
+                        [qt.expect(sb_x, state), qt.expect(sb_y, state), qt.expect(sb_z, state)])
 
     def draw_trajectory(self):
         """
