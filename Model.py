@@ -12,6 +12,8 @@ class PolicyNetwork(nn.Module):
             nn.Linear(100, 2)
         )
 
+        # Why the net goes from 12 to 2? Aren't there 4 possible actions?
+
     def forward(self, state, previous_state):
         combined = torch.cat([previous_state, state], dim=1)
         logits = self.layers(combined)

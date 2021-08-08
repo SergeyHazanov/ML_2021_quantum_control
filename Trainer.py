@@ -6,7 +6,7 @@ import itertools
 import numpy as np
 import random
 
-from Model import Network
+from Model import PolicyNetwork
 from simulation import QuantumEnvironment
 
 GAMMA = 0.99
@@ -18,8 +18,6 @@ EPSILON_END = 0.02
 EPSILON_DECAY = 10000
 TARGET_UPDATE_FREQ = 1000
 LEARNING_RATE = 5e-4
-
-
 
 
 class Trainer:
@@ -35,8 +33,8 @@ class Trainer:
 
         self.__episode_reward = 0.0
 
-        self.online_net = Network(self.env)
-        self.target_net = Network(self.env)
+        self.online_net = PolicyNetwork(self.env)
+        self.target_net = PolicyNetwork(self.env)
 
         self.target_net.load_state_dict(self.online_net.state_dict())
         self.__initialize_buffers()

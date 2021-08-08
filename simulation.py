@@ -6,7 +6,7 @@ import random
 
 THETA = 0
 THETA_DOT = 1
-AMP = 2
+AMP = 1
 AMP_DOT = 3
 
 AMPLITUDE_ERR = 0.1
@@ -14,9 +14,10 @@ AMPLITUDE_ERR = 0.1
 A_BOOST_CONTROL = 0.01
 T_BOOST_CONTROL = 0.01
 
+
 class QuantumEnvironment:
     """
-    The model is implemeneted as such - we have some energy gap w0. We induce a Hamiltonian in
+    The model is implemented as such - we have some energy gap w0. We induce a Hamiltonian in
     the x-y plane whose parameters are the angle θ and amplitude A. The model keeps θ_dot and
     A_dot. At every time step, the environment user is asked whether he wants, for both θ_dot
     and A_dot, whether he wants to increase/decrease them. The parameters are updated, a time
@@ -56,27 +57,33 @@ class QuantumEnvironment:
 
     def __state_to_vec(self):
         """
-        Vector bloch representation of the state self.state
+        Bloch vector representation of the state self.state
         :return: list of expectation values for the state self.state.
         """
-        # TODO - make this not swedish
-        psi = self.state
-        psi_d = self.state.dag()
-        x = psi_d * sigmax() * psi
-        y = psi_d * sigmay() * psi
-        z = psi_d * sigmaz() * psi
-        return [float(x[0][0][0]), float(y[0][0][0]), float(z[0][0][0])]
+        # TODO - make this not swedish - Done!
+        # psi = self.state
+        # psi_d = self.state.dag()
+        # x = psi_d * sigmax() * psi
+        # y = psi_d * sigmay() * psi
+        # z = psi_d * sigmaz() * psi
+        # return [float(x[0][0][0]), float(y[0][0][0]), float(z[0][0][0])]
+
+        x, y, z = qt.expect(sigmax(), self.state), qt.expect(sigmay(), self.state), qt.expect(sigmaz(), self.state)
+
+        return [x, y, z]
 
     def fidelity(self):
         """
         fidelity with respect to |1> (which is the target state)
         :return: F(|ψ>,|1>) of type float.
         """
-        # TODO - make this not swedish
-        psi = self.state
-        down = qt.basis(2, 1)
-        proj = (psi.dag() * down)[0][0][0]
-        return abs(proj * proj)
+        # TODO - make this not swedish - Done!
+        # psi = self.state
+        # down = qt.basis(2, 1)
+        # proj = (psi.dag() * down)[0][0][0]
+        # return abs(proj * proj)
+
+        return qt.fidelity(self.state, qt.basis(2, 1))
 
     def step(self, action):
         """
@@ -105,7 +112,6 @@ class QuantumEnvironment:
         self.ham_parameters[THETA] += self.ham_parameters[THETA_DOT] * self.dt
         self.ham_parameters[AMP] += self.ham_parameters[AMP_DOT] * self.dt
         self.ham_parameters[AMP] = abs(self.ham_parameters[AMP])
-
 
         amp = self.ham_parameters[AMP]
         amp_d = self.ham_parameters[AMP_DOT]
@@ -169,6 +175,7 @@ class QuantumEnvironment:
 
 class TLSSimulation:
     """ Simulate time evolution of a two level system subjected to an external driving."""
+
     def __init__(self, **kwargs):
 
         # General parameters:
@@ -312,7 +319,8 @@ class TLSSimulation:
             for state in self.simulation.states:
                 self.bloch_vectors_a.append([qt.expect(sa_x, state), qt.expect(sa_y, state), qt.expect(sa_z, state)])
                 if self.hamiltonian_type == 'two_qubits':
-                    self.bloch_vectors_b.append([qt.expect(sb_x, state), qt.expect(sb_y, state), qt.expect(sb_z, state)])
+                    self.bloch_vectors_b.append(
+                        [qt.expect(sb_x, state), qt.expect(sb_y, state), qt.expect(sb_z, state)])
 
     def draw_trajectory(self):
         """
