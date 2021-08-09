@@ -5,10 +5,13 @@ from qutip import sigmax, sigmay, sigmaz
 import random
 from Model import NET_INPUT_SIZE
 
-THETA_BOOST_CONTROL = 1
-AMP_BOOST_CONTROL = 1
-OMEGA_ERR_FACTOR = 0.1
-AMP_ERR_FACTOR = 0.1
+THETA_BOOST_CONTROL = 0.5
+AMP_BOOST_CONTROL = 0.5
+OMEGA_ERR_FACTOR = 1
+AMP_ERR_FACTOR = 1
+DONE_REWARD = 1e5
+MAX_AMP = 20
+MAX_OMEGA = 20
 
 
 class QuantumEnvironment:
@@ -40,7 +43,7 @@ class QuantumEnvironment:
         :return:
         """
 
-        # For know we are working in the int. picture, thus the zero.
+        # For now we are working in the int. picture, thus the zero.
         self.energy_gap = 0 * energy_gap
 
         self.dt = dt
@@ -105,11 +108,17 @@ class QuantumEnvironment:
         # Maybe remove unit
         self.state = (unitary_op * self.state).unit()
 
-        reward = self.fidelity()
-        reward -= (self.ham_omega ** 2) * OMEGA_ERR_FACTOR
-        reward -= (self.ham_amp ** 2) * AMP_ERR_FACTOR
+        reward = 100*self.fidelity()
+        # reward -= (self.ham_omega ** 2) * OMEGA_ERR_FACTOR
+        # reward -= (self.ham_amp ** 2) * AMP_ERR_FACTOR
 
-        done = (self.steps * self.dt) >= self.runtime
+        if (self.steps * self.dt) >= self.runtime:
+            done = True
+        elif np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:
+            done = True
+            reward -= DONE_REWARD
+        else:
+            done = False
 
         # This is what the neural network sees
         observation = [hx, hy, hz, self.ham_omega] + self.__state_to_vec()

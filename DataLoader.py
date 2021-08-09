@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 class GamesMemoryBank(Dataset):
 
     def __init__(self):
-        self.gamma = 1.003
+        self.gamma = 0.99
         self.state_history = []
         self.action_history = []
         self.action_prob_history = []
