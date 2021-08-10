@@ -5,10 +5,17 @@ from qutip import sigmax, sigmay, sigmaz
 import random
 from Model import NET_INPUT_SIZE
 
-THETA_BOOST_CONTROL = 1
-AMP_BOOST_CONTROL = 1
-OMEGA_ERR_FACTOR = 0.1
-AMP_ERR_FACTOR = 0.1
+THETA_BOOST_CONTROL = 0.1
+AMP_BOOST_CONTROL = 0.1
+
+OMEGA_ERR_FACTOR = 1
+AMP_ERR_FACTOR = OMEGA_ERR_FACTOR
+
+MAX_OMEGA = 1
+MAX_AMP = 1
+
+REACH_TARGET = 1e3
+TOO_LARGE = 1e3
 
 
 class QuantumEnvironment:
@@ -16,8 +23,7 @@ class QuantumEnvironment:
     The model is implemented as such - we have some energy gap w0. We induce a Hamiltonian in
     the x-y plane whose parameters are the angle θ and amplitude A. The model keeps θ_dot and
     A_dot. At every time step, the environment user is asked whether he wants, for both θ_dot
-    and A_dot, whether he wants to increase/decrease them. The parameters are updated, a time
-    step is applied.
+    and A_dot, to increase/decrease them. The parameters are updated, a time step is applied.
     The inputs to the network are:
         <σ_x>,
         <σ_y>,
@@ -53,7 +59,7 @@ class QuantumEnvironment:
         self.ham_omega = 0.0
         self.ham_amp = 0.0
 
-    def __state_to_vec(self):
+    def state2vec(self):
         """
         Bloch vector representation of the state self.state
         :return: list of expectation values for the state self.state.
@@ -81,14 +87,14 @@ class QuantumEnvironment:
             self.ham_omega += THETA_BOOST_CONTROL
             self.ham_amp += AMP_BOOST_CONTROL
         elif action == 1:
-            self.ham_omega += THETA_BOOST_CONTROL
+            self.ham_omega -= THETA_BOOST_CONTROL
             self.ham_amp -= AMP_BOOST_CONTROL
         elif action == 2:
-            self.ham_omega -= THETA_BOOST_CONTROL
-            self.ham_amp += AMP_BOOST_CONTROL
+            self.ham_omega += THETA_BOOST_CONTROL
+            self.ham_amp -= AMP_BOOST_CONTROL
         elif action == 3:
             self.ham_omega -= THETA_BOOST_CONTROL
-            self.ham_amp -= AMP_BOOST_CONTROL
+            self.ham_amp += AMP_BOOST_CONTROL
         else:
             print('Wrong action value!')
 
@@ -100,19 +106,28 @@ class QuantumEnvironment:
 
         ham_tot = hx * sigmax() + hy * sigmay() + hz * sigmaz()
 
-        unitary_op = 1 - 1j * ham_tot * self.dt
+        unitary_op = (1 - 1j * ham_tot * self.dt).expm()
 
-        # Maybe remove unit
+        prev_fidelity = self.fidelity()
         self.state = (unitary_op * self.state).unit()
 
-        reward = self.fidelity()
-        reward -= (self.ham_omega ** 2) * OMEGA_ERR_FACTOR
-        reward -= (self.ham_amp ** 2) * AMP_ERR_FACTOR
+        reward = (self.fidelity() - prev_fidelity) * 100
+        reward -= np.abs(self.ham_omega) * OMEGA_ERR_FACTOR
+        reward -= self.ham_amp * AMP_ERR_FACTOR
 
-        done = (self.steps * self.dt) >= self.runtime
+        if np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:
+            reward -= TOO_LARGE
+
+        if self.fidelity() > 0.99:
+            done = True
+            reward += REACH_TARGET
+        elif (self.steps * self.dt) >= self.runtime:
+            done = True
+        else:
+            done = False
 
         # This is what the neural network sees
-        observation = [hx, hy, hz, self.ham_omega] + self.__state_to_vec()
+        observation = [hx, hy, hz, self.ham_omega] + self.state2vec()
 
         if len(observation) != NET_INPUT_SIZE:
             print('Wrong observation size')
@@ -130,7 +145,7 @@ class QuantumEnvironment:
         """
 
         c1 = 1j * random.random() + random.random()
-        c2 = 1j * random.random() + random.random()
+        # c2 = 1j * random.random() + random.random()
         c2 = 0
 
         psi = c1 * qt.basis(2, 0) + c2 * qt.basis(2, 1)
@@ -144,7 +159,7 @@ class QuantumEnvironment:
         hy = 0
         hz = self.energy_gap
 
-        observation = [hx, hy, hz, self.ham_omega] + self.__state_to_vec()
+        observation = [hx, hy, hz, self.ham_omega] + self.state2vec()
         return observation
 
     def sample(self):
