@@ -4,18 +4,26 @@ import matplotlib.pyplot as plt
 from qutip import sigmax, sigmay, sigmaz
 import random
 from Model import NET_INPUT_SIZE
+import itertools
 
-THETA_BOOST_CONTROL = 0.1
-AMP_BOOST_CONTROL = 0.1
+THETA_BOOST_CONTROL = 1e-2
+AMP_BOOST_CONTROL = 1e-2
 
 OMEGA_ERR_FACTOR = 1
-AMP_ERR_FACTOR = OMEGA_ERR_FACTOR
+AMP_ERR_FACTOR = 1
+
+FIDELITY_FACTOR = 100
 
 MAX_OMEGA = 1
 MAX_AMP = 1
 
-REACH_TARGET = 1e3
-TOO_LARGE = 1e3
+HAM_SIZE_FACTOR = 1e4
+REACH_TARGET = 1e4
+TOO_LARGE = 1e4
+
+FAIL_PENALTY = 1e4
+
+N_ACTIONS = 9
 
 
 class QuantumEnvironment:
@@ -33,8 +41,6 @@ class QuantumEnvironment:
         theta_dot,
         A_dot.
     """
-
-    N_ACTIONS = 4
 
     def __init__(self, energy_gap, runtime, dt):
         """
@@ -59,6 +65,11 @@ class QuantumEnvironment:
         self.ham_omega = 0.0
         self.ham_amp = 0.0
 
+        # create action lookup table
+        omega_list = [-1, 0, 1]
+        amp_list = [-1, 0, 1]
+        self.action_lookup = list(itertools.product(omega_list, amp_list))
+
     def state2vec(self):
         """
         Bloch vector representation of the state self.state
@@ -77,26 +88,32 @@ class QuantumEnvironment:
     def step(self, action):
         """
         Perform a single action: increase or decrease omega.
-        so 2*2 actions. Observe the ad
+        so 3*3 actions. Observe the ad
         :param action: an integer
         :return:
         """
         self.steps += 1
 
-        if action == 0:
-            self.ham_omega += THETA_BOOST_CONTROL
-            self.ham_amp += AMP_BOOST_CONTROL
-        elif action == 1:
-            self.ham_omega -= THETA_BOOST_CONTROL
-            self.ham_amp -= AMP_BOOST_CONTROL
-        elif action == 2:
-            self.ham_omega += THETA_BOOST_CONTROL
-            self.ham_amp -= AMP_BOOST_CONTROL
-        elif action == 3:
-            self.ham_omega -= THETA_BOOST_CONTROL
-            self.ham_amp += AMP_BOOST_CONTROL
+        if action > (N_ACTIONS - 1) or action < 0 or type(action) is not int:
+            raise Exception('Wrong action value!')
         else:
-            print('Wrong action value!')
+            self.ham_omega += self.action_lookup[action][0] * THETA_BOOST_CONTROL
+            self.ham_amp += self.action_lookup[action][1] * AMP_BOOST_CONTROL
+
+        # if action == 0:
+        #     self.ham_omega += THETA_BOOST_CONTROL
+        #     self.ham_amp += AMP_BOOST_CONTROL
+        # elif action == 1:
+        #     self.ham_omega -= THETA_BOOST_CONTROL
+        #     self.ham_amp -= AMP_BOOST_CONTROL
+        # elif action == 2:
+        #     self.ham_omega += THETA_BOOST_CONTROL
+        #     self.ham_amp -= AMP_BOOST_CONTROL
+        # elif action == 3:
+        #     self.ham_omega -= THETA_BOOST_CONTROL
+        #     self.ham_amp += AMP_BOOST_CONTROL
+        # else:
+        #     print('Wrong action value!')
 
         self.ham_theta += self.ham_omega * self.dt
 
@@ -111,7 +128,7 @@ class QuantumEnvironment:
         prev_fidelity = self.fidelity()
         self.state = (unitary_op * self.state).unit()
 
-        reward = (self.fidelity() - prev_fidelity) * 100
+        reward = (self.fidelity() - prev_fidelity) * FIDELITY_FACTOR
         reward -= np.abs(self.ham_omega) * OMEGA_ERR_FACTOR
         reward -= self.ham_amp * AMP_ERR_FACTOR
 
@@ -121,7 +138,11 @@ class QuantumEnvironment:
         if self.fidelity() > 0.99:
             done = True
             reward += REACH_TARGET
+            # reward += (1 / (1 + np.sqrt(hx ** 2 + hy ** 2))) * HAM_SIZE_FACTOR
+            # reward += 1 / np.sqrt(hx ** 2 + hy ** 2)
+
         elif (self.steps * self.dt) >= self.runtime:
+            # reward -= FAIL_PENALTY
             done = True
         else:
             done = False
@@ -166,7 +187,7 @@ class QuantumEnvironment:
         """
         :return: A random action represented by an integer.
         """
-        return random.randint(0, self.N_ACTIONS - 1)
+        return random.randint(0, N_ACTIONS - 1)
 
 
 class TLSSimulation:

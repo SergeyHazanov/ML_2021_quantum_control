@@ -1,6 +1,6 @@
 import numpy as np
-import qutip as qt
 import matplotlib.pyplot as plt
+from matplotlib import animation
 
 from DataLoader import GamesMemoryBank
 from policy_loss import PolicyLoss
@@ -131,29 +131,18 @@ class Trainer:
 
             torch.save(self.net.state_dict(), self.model_name)
 
-    def probe_learning(self):
-        def get_sphere(steps=20):
-            """
-            Generate the coordinates for a sphere.
-            :param steps: The number of angle steps.
-            :return: x, y and z arrays for generating a sphere with plt.plot_surface(x, y, z).
-            """
-            phi = np.linspace(0, np.pi, steps)
-            theta = np.linspace(0, 2 * np.pi, steps)
-            phi, theta = np.meshgrid(phi, theta)
+    def play_game(self):
+        """
+        A method to run a single game with currently save net.
+        :return: amps, omega, theta, s_x, s_y, s_z
+        """
 
-            # The Cartesian coordinates of the unit sphere
-            x = np.sin(phi) * np.cos(theta)
-            y = np.sin(phi) * np.sin(theta)
-            z = np.cos(phi)
-
-            return x, y, z
-
+        # initialize state for a new game
         state = self.env.reset()
         state = torch.tensor(state, dtype=torch.float).unsqueeze(0)
         prev_state = state
 
-        z = list()
+        # initialize lists for stored quantities in the simulation
         omega = list()
         theta = list()
         amps = list()
@@ -162,21 +151,27 @@ class Trainer:
         s_y = list()
         s_z = list()
 
+        q_state = [self.env.state]
+
         # play a game
         while True:
             action, action_p = self.net.sample_action(state, prev_state)
             new_state, reward, done, info = self.env.step(action)
+            q_state.append(self.env.state)
             state = torch.tensor(new_state, dtype=torch.float).view(-1).unsqueeze(0)
 
+            # extract the information from the state to a numpy array
             state_data = state[0].numpy()
 
+            # evaluate the current amplitude: sqrt(h_x^2 + h_y^2 + h_z^2)
             curr_amp = np.sqrt(state_data[0] ** 2 + state_data[1] ** 2 + state_data[2] ** 2)
             curr_omega = state_data[3]
+
+            # integrate omega to find theta
             if not theta:
                 curr_theta = curr_omega * self.dt
             else:
                 curr_theta = theta[-1] + curr_omega * self.dt
-            z.append(state_data[-1])
 
             amps.append(curr_amp)
             omega.append(curr_omega)
@@ -188,6 +183,17 @@ class Trainer:
 
             if done:
                 break
+
+        return amps, omega, theta, s_x, s_y, s_z
+
+    def probe_learning(self):
+        """
+        A method to probe a trained network: 1) plot the amplitude, omega and theta as a function of time.
+                                             2) plot the trajectory on the Bloch sphere.
+        :return:
+        """
+
+        amps, omega, theta, s_x, s_y, s_z = self.play_game()
 
         times = np.arange(0, self.runtime, self.dt)
         times = times[:len(amps)]
@@ -204,7 +210,6 @@ class Trainer:
         fig = plt.figure(figsize=plt.figaspect(1.))
         axes = [fig.add_subplot(111, projection='3d')]
         x, y, z = get_sphere()
-
         [ax.set_box_aspect([1.1, 1.1, 1]) for ax in axes]
 
         # plot Bloch sphere and points
@@ -216,6 +221,7 @@ class Trainer:
         [ax.plot_surface(x, y, z, alpha=0.2, cmap='bone', edgecolor='black', linewidth=0.25) for ax in axes]
         axes[0].scatter(s_x, s_y, s_z, s=50, c=colors, cmap='Reds', edgecolors='black')
 
+        # prettify the Bloch sphere
         # add lines
         [ax.plot([-1, 1], [0, 0], [0, 0], color='k') for ax in axes]
         [ax.plot([0, 0], [-1, 1], [0, 0], color='k') for ax in axes]
@@ -231,6 +237,81 @@ class Trainer:
 
         [ax.axis('off') for ax in axes]
         plt.show()
+
+    def game_animation(self, fig_size, save=False, fps=60):
+        def update(num, data_set, line):
+            line.set_data(data_set[0:2, :num])
+            line.set_3d_properties(data_set[2, :num])
+            return line
+
+        amps, omega, theta, s_x, s_y, s_z = self.play_game()
+
+        # THE DATA POINTS
+        data_set = np.array([s_x, s_y, s_z])
+        frames = len(s_x)
+
+        # GET SOME MATPLOTLIB OBJECTS
+        fig = plt.figure(figsize=fig_size)
+        axes = [fig.add_subplot(111, projection='3d')]
+        sphere_x, sphere_y, sphere_z = get_sphere()
+        axes[0].plot_surface(sphere_x, sphere_y, sphere_z, alpha=0.2, cmap='bone', edgecolor='black', linewidth=0.25)
+        line = plt.plot(data_set[0], data_set[1], data_set[2], lw=3, c='r')[0]  # For line plot
+
+        # AXES PROPERTIES
+        axes[0].set_box_aspect([1.1, 1.1, 1])
+        # axes[0].tight_layout()
+        fig.tight_layout()
+        # Creating the Animation object
+
+        line_ani = animation.FuncAnimation(fig,
+                                           update,
+                                           frames=frames,
+                                           fargs=(data_set, line),
+                                           interval=50,
+                                           blit=False,
+                                           repeat=False)
+
+        # prettify the Bloch sphere
+        # add lines
+        [ax.plot([-1, 1], [0, 0], [0, 0], color='k') for ax in axes]
+        [ax.plot([0, 0], [-1, 1], [0, 0], color='k') for ax in axes]
+        [ax.plot([0, 0], [0, 0], [-1, 1], color='k') for ax in axes]
+
+        # add text
+        [ax.text(0, 0, 1.2, r'$\left|+,z\right\rangle$') for ax in axes]
+        [ax.text(0, 0, -1.2, r'$\left|-,z\right\rangle$') for ax in axes]
+        [ax.text(1.1, 0, 0, r'$\left|+,x\right\rangle$') for ax in axes]
+        [ax.text(-1.55, 0, 0, r'$\left|-,x\right\rangle$') for ax in axes]
+        [ax.text(0, 1.1, 0, r'$\left|+,y\right\rangle$') for ax in axes]
+        [ax.text(0, -1.2, 0, r'$\left|-,y\right\rangle$') for ax in axes]
+
+        [ax.axis('off') for ax in axes]
+
+        if save:
+            FFwriter = animation.FFMpegWriter(fps=fps)
+            line_ani.save(r'AnimationNew.mp4', writer=FFwriter)
+
+        plt.show()
+
+        return line_ani
+
+
+def get_sphere(steps=20):
+    """
+    Generate the coordinates for a sphere.
+    :param steps: The number of angle steps.
+    :return: x, y and z arrays for generating a sphere with plt.plot_surface(x, y, z).
+    """
+    phi = np.linspace(0, np.pi, steps)
+    theta = np.linspace(0, 2 * np.pi, steps)
+    phi, theta = np.meshgrid(phi, theta)
+
+    # The Cartesian coordinates of the unit sphere
+    x = np.sin(phi) * np.cos(theta)
+    y = np.sin(phi) * np.sin(theta)
+    z = np.cos(phi)
+
+    return x, y, z
 
 
 if __name__ == '__main__':

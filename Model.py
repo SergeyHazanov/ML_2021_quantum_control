@@ -10,8 +10,9 @@ class PolicyNetwork(nn.Module):
 
         self.layers = nn.Sequential(
             nn.Linear(NET_INPUT_SIZE * 2, 512), nn.ReLU(),
-            nn.Linear(512, 100), nn.ReLU(),
-            nn.Linear(100, 4)
+            nn.Linear(512, 256), nn.ReLU(),
+            nn.Linear(256, 64), nn.ReLU(),
+            nn.Linear(64, 8)
         )
 
     def forward(self, state, previous_state):
