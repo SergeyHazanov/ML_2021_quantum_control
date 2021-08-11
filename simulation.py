@@ -5,13 +5,13 @@ from qutip import sigmax, sigmay, sigmaz
 import random
 from Model import NET_INPUT_SIZE
 
-THETA_BOOST_CONTROL = 0.5
-AMP_BOOST_CONTROL = 0.5
-OMEGA_ERR_FACTOR = 1
-AMP_ERR_FACTOR = 1
+THETA_BOOST_CONTROL = 0.1
+AMP_BOOST_CONTROL = 0.1
+OMEGA_ERR_FACTOR = 1e2
+AMP_ERR_FACTOR = 1e2
 DONE_REWARD = 1e5
-MAX_AMP = 20
-MAX_OMEGA = 20
+MAX_AMP = 1
+MAX_OMEGA = 1
 
 
 class QuantumEnvironment:
@@ -106,17 +106,21 @@ class QuantumEnvironment:
         unitary_op = 1 - 1j * ham_tot * self.dt
 
         # Maybe remove unit
+        curr_fidelity = self.fidelity()
         self.state = (unitary_op * self.state).unit()
 
-        reward = 100*self.fidelity()
-        # reward -= (self.ham_omega ** 2) * OMEGA_ERR_FACTOR
-        # reward -= (self.ham_amp ** 2) * AMP_ERR_FACTOR
+        reward = (self.fidelity() - curr_fidelity) * 1e3
+        reward -= np.abs(self.ham_omega) * OMEGA_ERR_FACTOR
+        reward -= self.ham_amp * AMP_ERR_FACTOR
 
         if (self.steps * self.dt) >= self.runtime:
             done = True
         elif np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:
             done = True
             reward -= DONE_REWARD
+        elif self.fidelity() > 0.85:
+            done = False
+            reward += np.exp(10 * (self.fidelity() - 1)) * DONE_REWARD
         else:
             done = False
 
