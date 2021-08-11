@@ -13,6 +13,7 @@ from os.path import isfile
 import torch
 from tqdm import tqdm
 
+import imageio
 
 class Trainer:
 
@@ -151,13 +152,13 @@ class Trainer:
         s_y = list()
         s_z = list()
 
-        q_state = [self.env.state]
+        q_states = [self.env.state]
 
         # play a game
         while True:
             action, action_p = self.net.sample_action(state, prev_state)
             new_state, reward, done, info = self.env.step(action)
-            q_state.append(self.env.state)
+            q_states.append(self.env.state)
             state = torch.tensor(new_state, dtype=torch.float).view(-1).unsqueeze(0)
 
             # extract the information from the state to a numpy array
@@ -184,7 +185,7 @@ class Trainer:
             if done:
                 break
 
-        return amps, omega, theta, s_x, s_y, s_z
+        return amps, omega, theta, s_x, s_y, s_z, q_states
 
     def probe_learning(self):
         """
@@ -193,7 +194,7 @@ class Trainer:
         :return:
         """
 
-        amps, omega, theta, s_x, s_y, s_z = self.play_game()
+        amps, omega, theta, s_x, s_y, s_z, _ = self.play_game()
 
         times = np.arange(0, self.runtime, self.dt)
         times = times[:len(amps)]
@@ -237,6 +238,11 @@ class Trainer:
 
         [ax.axis('off') for ax in axes]
         plt.show()
+
+    def animate(self):
+        _, _, _, _, _, _, q_states = self.play_game()
+
+        colors = plt.cm.plasma(np.linspace(0, 1, len(q_states)))
 
     def game_animation(self, fig_size, save=False, fps=60):
         def update(num, data_set, line):
