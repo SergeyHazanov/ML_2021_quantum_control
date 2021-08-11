@@ -5,13 +5,17 @@ from qutip import sigmax, sigmay, sigmaz
 import random
 from Model import NET_INPUT_SIZE
 
-THETA_BOOST_CONTROL = 0.1
-AMP_BOOST_CONTROL = 0.1
-OMEGA_ERR_FACTOR = 1e2
-AMP_ERR_FACTOR = 1e2
-DONE_REWARD = 1e5
-MAX_AMP = 1
+THETA_BOOST_CONTROL = 1e-2
+AMP_BOOST_CONTROL = 1e-2
+
+OMEGA_ERR_FACTOR = 1
+AMP_ERR_FACTOR = 1
+
 MAX_OMEGA = 1
+MAX_AMP = 1
+
+REACH_TARGET = 1e3
+TOO_LARGE = 1e3
 
 
 class QuantumEnvironment:
@@ -56,7 +60,7 @@ class QuantumEnvironment:
         self.ham_omega = 0.0
         self.ham_amp = 0.0
 
-    def __state_to_vec(self):
+    def state_to_vec(self):
         """
         Bloch vector representation of the state self.state
         :return: list of expectation values for the state self.state.
@@ -81,17 +85,32 @@ class QuantumEnvironment:
         self.steps += 1
 
         if action == 0:
-            self.ham_omega += THETA_BOOST_CONTROL
-            self.ham_amp += AMP_BOOST_CONTROL
-        elif action == 1:
-            self.ham_omega += THETA_BOOST_CONTROL
+            self.ham_omega -= THETA_BOOST_CONTROL
             self.ham_amp -= AMP_BOOST_CONTROL
+        elif action == 1:
+            self.ham_omega -= THETA_BOOST_CONTROL
+            self.ham_amp = 0
         elif action == 2:
             self.ham_omega -= THETA_BOOST_CONTROL
             self.ham_amp += AMP_BOOST_CONTROL
         elif action == 3:
-            self.ham_omega -= THETA_BOOST_CONTROL
+            self.ham_omega = 0
             self.ham_amp -= AMP_BOOST_CONTROL
+        elif action == 4:
+            self.ham_omega = 0
+            self.ham_amp = 0
+        elif action == 5:
+            self.ham_omega = 0
+            self.ham_amp += AMP_BOOST_CONTROL
+        elif action == 6:
+            self.ham_omega += THETA_BOOST_CONTROL
+            self.ham_amp -= AMP_BOOST_CONTROL
+        elif action == 7:
+            self.ham_omega += THETA_BOOST_CONTROL
+            self.ham_amp = 0
+        elif action == 8:
+            self.ham_omega += THETA_BOOST_CONTROL
+            self.ham_amp += AMP_BOOST_CONTROL
         else:
             print('Wrong action value!')
 
@@ -109,23 +128,24 @@ class QuantumEnvironment:
         curr_fidelity = self.fidelity()
         self.state = (unitary_op * self.state).unit()
 
-        reward = (self.fidelity() - curr_fidelity) * 1e3
+        reward = (self.fidelity() - curr_fidelity) * 100
         reward -= np.abs(self.ham_omega) * OMEGA_ERR_FACTOR
         reward -= self.ham_amp * AMP_ERR_FACTOR
 
-        if (self.steps * self.dt) >= self.runtime:
+        done = False
+
+        if np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:
+            reward -= TOO_LARGE
+        if self.fidelity() > 0.99:
+            reward += REACH_TARGET
             done = True
-        elif np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:
+        elif (self.steps * self.dt) >= self.runtime:
             done = True
-            reward -= DONE_REWARD
-        elif self.fidelity() > 0.85:
-            done = False
-            reward += np.exp(10 * (self.fidelity() - 1)) * DONE_REWARD
-        else:
-            done = False
+
+            # reward += np.exp(10 * (self.fidelity() - 1)) * DONE_REWARD
 
         # This is what the neural network sees
-        observation = [hx, hy, hz, self.ham_omega] + self.__state_to_vec()
+        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec()
 
         if len(observation) != NET_INPUT_SIZE:
             print('Wrong observation size')
@@ -143,7 +163,7 @@ class QuantumEnvironment:
         """
 
         c1 = 1j * random.random() + random.random()
-        c2 = 1j * random.random() + random.random()
+        # c2 = 1j * random.random() + random.random()
         c2 = 0
 
         psi = c1 * qt.basis(2, 0) + c2 * qt.basis(2, 1)
@@ -157,7 +177,7 @@ class QuantumEnvironment:
         hy = 0
         hz = self.energy_gap
 
-        observation = [hx, hy, hz, self.ham_omega] + self.__state_to_vec()
+        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec()
         return observation
 
     def sample(self):
