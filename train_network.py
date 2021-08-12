@@ -51,7 +51,7 @@ class Trainer:
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
 
         self.decay_rate = kwargs.get('decay_rate', 1)
-        # self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=self.optimizer, gamma=self.decay_rate)
+        self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=self.optimizer, gamma=self.decay_rate)
 
     def train(self):
         final_fidelity = []
@@ -130,7 +130,7 @@ class Trainer:
 
                 self.optimizer.step()
 
-                losses.append(loss.item())
+                losses.append(torch.mean(loss).item())
                 rewards.append(torch.mean(reward).item())
                 discounted_rewards.append(torch.max(discounted_reward).item())
 
@@ -138,12 +138,18 @@ class Trainer:
             # ax[0].plot(losses, label='loss')
             # ax.plot(rewards, label='rewards')
             ax.plot(discounted_rewards, label='discounted rewards')
-            ax.legend()
+            # ax2 = ax.twinx()
+            # ax2.plot(losses, color='red', label='loss', alpha=0.6)
+            # ax2.legend(loc='lower right')
+            ax.legend(loc='lower center')
             plt.show()
 
-            # self.lr_scheduler.step()
+            self.lr_scheduler.step()
 
             torch.save(self.net.state_dict(), self.model_name)
+
+    def save_net_file(self, fname):
+        torch.save(self.net.state_dict(), fname)
 
     def play_game(self):
         """
@@ -168,8 +174,6 @@ class Trainer:
         # play a game
         while True:
             action, action_p = self.net.sample_action(state, prev_state)
-            print((action, action_p))
-            print(self.env.ham_amp)
             new_state, reward, done, info = self.env.step(action)
             state = torch.tensor(new_state, dtype=torch.float).view(-1).unsqueeze(0)
 

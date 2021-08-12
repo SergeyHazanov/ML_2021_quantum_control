@@ -9,16 +9,9 @@ import itertools
 THETA_BOOST_CONTROL = 1e-2
 AMP_BOOST_CONTROL = 1e-2
 
-OMEGA_ERR_FACTOR = 1
-AMP_ERR_FACTOR = 1
-
-FIDELITY_FACTOR = 100
 
 MAX_OMEGA = 1
 MAX_AMP = 1
-
-REACH_TARGET = 1e4
-TOO_LARGE = 1e4
 
 N_ACTIONS = 9
 
@@ -108,23 +101,21 @@ class QuantumEnvironment:
 
         ham_tot = hx * sigmax() + hy * sigmay() + hz * sigmaz()
 
-        unitary_op = (1 - 1j * ham_tot * self.dt).expm()
+        unitary_op = (- 1j * ham_tot * self.dt).expm()  # qt.identity(2) - 1j * ham_tot * self.dt
 
         self.state = (unitary_op * self.state).unit()
 
-        # reward = self.fidelity() - prev_fidelity
-
         delta_fidelity = self.fidelity() - prev_fidelity
-        reward = 1 / (1 - self.fidelity())
+        reward = 1 / np.sqrt(1 - self.fidelity())
         if delta_fidelity < 0:
             reward = 0
         else:
-            reward = (1 + delta_fidelity) * reward
+            reward = (1 + delta_fidelity) ** 2 * reward
 
-        # penalty = delta_fidelity * 100 if delta_fidelity < 0 else 0
-        # reward -= penalty
-
-        if (self.steps * self.dt) >= self.runtime:
+        if self.fidelity() > 0.999:
+            done = True
+            reward += 1e3
+        elif (self.steps * self.dt) >= self.runtime:
             done = True
         else:
             done = False
