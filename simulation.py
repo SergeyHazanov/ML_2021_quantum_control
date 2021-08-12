@@ -98,6 +98,7 @@ class QuantumEnvironment:
         else:
             self.ham_omega += self.action_lookup[action][0] * THETA_BOOST_CONTROL
             self.ham_amp += self.action_lookup[action][1] * AMP_BOOST_CONTROL
+            self.ham_amp = self.ham_amp if self.ham_amp > 0 else 0
 
         self.ham_theta += self.ham_omega * self.dt
 

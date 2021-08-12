@@ -168,6 +168,8 @@ class Trainer:
         # play a game
         while True:
             action, action_p = self.net.sample_action(state, prev_state)
+            print((action, action_p))
+            print(self.env.ham_amp)
             new_state, reward, done, info = self.env.step(action)
             state = torch.tensor(new_state, dtype=torch.float).view(-1).unsqueeze(0)
 
