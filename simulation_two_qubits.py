@@ -112,10 +112,11 @@ class QuantumEnvironment:
         else:
             self.ham_omega += self.action_lookup[action][0] * THETA_BOOST_CONTROL
             self.ham_amp += self.action_lookup[action][1] * AMP_BOOST_CONTROL
+            self.ham_amp = self.ham_amp if self.ham_amp > 0 else 0
 
         self.ham_theta += self.ham_omega * self.dt
 
-        g = 1e-2
+        g = 1e-3
         hx = self.ham_amp * np.cos(self.ham_theta)
         hy = self.ham_amp * np.sin(self.ham_theta)
         hz = self.energy_gap
@@ -130,7 +131,7 @@ class QuantumEnvironment:
         self.state = (unitary_op * self.state).unit()
 
         delta_fidelity = self.fidelity() - curr_fidelity
-        reward = 1 / (1 - self.fidelity())
+        reward = 1 / (1 - self.fidelity()) ** 2
         if delta_fidelity < 0:
             reward = 0
         else:
@@ -157,7 +158,7 @@ class QuantumEnvironment:
             done = False
 
         # This is what the neural network sees
-        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec() + self.state_to_vec(label='control')
+        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec(label='control') + self.state_to_vec()
 
         if len(observation) != NET_INPUT_SIZE:
             print('Wrong observation size')
@@ -184,7 +185,7 @@ class QuantumEnvironment:
         hy = 0
         hz = self.energy_gap
 
-        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec() + self.state_to_vec(label='control')
+        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec(label='control') + self.state_to_vec()
         return observation
 
     def sample(self):
