@@ -113,7 +113,7 @@ class QuantumEnvironment:
         self.state = (unitary_op * self.state).unit()
 
         reward = (self.fidelity() - curr_fidelity) * FIDELITY_DELTA
-        # reward -= np.abs(self.ham_omega) * OMEGA_ERR_FACTOR
+        # reward -= np.abs(self.ham_omega_t) * OMEGA_ERR_FACTOR
         # reward -= np.abs(self.ham_amp) * AMP_ERR_FACTOR
 
         if np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:

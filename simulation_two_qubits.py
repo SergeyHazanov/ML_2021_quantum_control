@@ -7,20 +7,21 @@ from Model import NET_INPUT_SIZE
 import itertools
 
 THETA_BOOST_CONTROL = 1e-2
+PHI_BOOST_CONTROL = 1e-2
 AMP_BOOST_CONTROL = 1e-2
 
-OMEGA_ERR_FACTOR = 1
-AMP_ERR_FACTOR = 1
+# OMEGA_ERR_FACTOR = 1
+# AMP_ERR_FACTOR = 1
 
 MAX_OMEGA = 1
 MAX_AMP = 1
 
-REACH_TARGET = 1e4
-TOO_LARGE = 1e4
-TIME = 1e2
-FIDELITY_DELTA = 2e2
+REACH_TARGET = 1e3
+# TOO_LARGE = 1e4
+# TIME = 1e2
+# FIDELITY_DELTA = 2e2
 
-N_ACTIONS = 9
+N_ACTIONS = 27
 
 
 class QuantumEnvironment:
@@ -60,13 +61,16 @@ class QuantumEnvironment:
         self.state = qt.tensor(qt.basis(2, 0), qt.basis(2, 0))
 
         self.ham_theta = 0.0
-        self.ham_omega = 0.0
+        self.ham_phi = 0.0
+        self.ham_omega_t = 0.0
+        self.ham_omega_p = 0.0
         self.ham_amp = 0.0
 
         # create action lookup table
         omega_list = [-1, 0, 1]
+        phi_list = [-1, 0, 1]
         amp_list = [-1, 0, 1]
-        self.action_lookup = list(itertools.product(omega_list, amp_list))
+        self.action_lookup = list(itertools.product(omega_list, phi_list, amp_list))
 
     def state_to_vec(self, label='target'):
         """
@@ -100,48 +104,52 @@ class QuantumEnvironment:
 
     def step(self, action):
         """
-        Perform a single action: increase or decrease omega.
-        so 2*2 actions. Observe the ad
+        Perform a single action: increase, decrease or don't change omega/amp.
+        so 3*3 actions. Observe the ad
         :param action: an integer
         :return:
         """
+
+        prev_fidelity = self.fidelity()
+
         self.steps += 1
 
         if action > (N_ACTIONS - 1) or action < 0 or type(action) is not int:
             raise Exception('Wrong action value!')
         else:
-            self.ham_omega += self.action_lookup[action][0] * THETA_BOOST_CONTROL
-            self.ham_amp += self.action_lookup[action][1] * AMP_BOOST_CONTROL
+            self.ham_omega_t += self.action_lookup[action][0] * THETA_BOOST_CONTROL
+            self.ham_omega_p += self.action_lookup[action][1] * PHI_BOOST_CONTROL
+            self.ham_amp += self.action_lookup[action][2] * AMP_BOOST_CONTROL
             self.ham_amp = self.ham_amp if self.ham_amp > 0 else 0
 
-        self.ham_theta += self.ham_omega * self.dt
+        self.ham_theta += self.ham_omega_t * self.dt
+        self.ham_phi += self.ham_omega_p * self.dt
 
         g = 1e-3
-        hx = self.ham_amp * np.cos(self.ham_theta)
-        hy = self.ham_amp * np.sin(self.ham_theta)
-        hz = self.energy_gap
+        hx = self.ham_amp * np.sin(self.ham_theta) * np.cos(self.ham_phi)
+        hy = self.ham_amp * np.sin(self.ham_theta) * np.sin(self.ham_phi)
+        hz = self.ham_amp * np.cos(self.ham_theta) + self.energy_gap
 
         ham_tot = qt.tensor((hx * sigmax() + hy * sigmay() + hz * sigmaz()), qt.identity(2)) \
                   + g * (qt.tensor(qt.sigmap(), qt.sigmam()) + qt.tensor(qt.sigmam(), qt.sigmap()))
 
-        unitary_op = 1 - 1j * ham_tot * self.dt
+        unitary_op = qt.tensor(qt.identity(2), qt.identity(2)) - 1j * ham_tot * self.dt
 
-        # Maybe remove unit
-        curr_fidelity = self.fidelity()
         self.state = (unitary_op * self.state).unit()
 
-        delta_fidelity = self.fidelity() - curr_fidelity
-        reward = 1 / (1 - self.fidelity()) ** 2
+        delta_fidelity = self.fidelity() - prev_fidelity
+        # reward = 1 / (1 - self.fidelity()) ** 2
+        reward = 1 / np.sqrt(1 - self.fidelity())
         if delta_fidelity < 0:
             reward = 0
         else:
-            reward = (1 + delta_fidelity) * reward
+            reward = (1 + delta_fidelity) ** 2 * reward
 
-        # reward = (self.fidelity() - curr_fidelity) * FIDELITY_DELTA
-        # # reward -= np.abs(self.ham_omega) * OMEGA_ERR_FACTOR
+        # reward = (self.fidelity() - prev_fidelity) * FIDELITY_DELTA
+        # # reward -= np.abs(self.ham_omega_t) * OMEGA_ERR_FACTOR
         # # reward -= np.abs(self.ham_amp) * AMP_ERR_FACTOR
         #
-        # if np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:
+        # if np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega_t) > MAX_OMEGA:
         #     reward -= TOO_LARGE
         # if self.fidelity() > 0.99:
         #     reward += REACH_TARGET
@@ -152,13 +160,17 @@ class QuantumEnvironment:
         # else:
         #     done = False
 
-        if (self.steps * self.dt) >= self.runtime:
+        if self.fidelity() > 0.999:
+            done = True
+            reward += REACH_TARGET
+        elif (self.steps * self.dt) >= self.runtime:
             done = True
         else:
             done = False
 
         # This is what the neural network sees
-        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec(label='control') + self.state_to_vec()
+        observation = [hx, hy, hz, self.ham_omega_t, self.ham_omega_p] + self.state_to_vec(label='control') \
+                      + self.state_to_vec()
 
         if len(observation) != NET_INPUT_SIZE:
             print('Wrong observation size')
@@ -179,20 +191,23 @@ class QuantumEnvironment:
 
         self.steps = 0
         self.ham_theta = 0.0
-        self.ham_omega = 0.0
+        self.ham_phi = 0.0
+        self.ham_omega_t = 0.0
+        self.ham_omega_p = 0.0
         self.ham_amp = 0.0
         hx = 0
         hy = 0
         hz = self.energy_gap
 
-        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec(label='control') + self.state_to_vec()
+        observation = [hx, hy, hz, self.ham_omega_t, self.ham_omega_p] + self.state_to_vec(label='control') \
+                      + self.state_to_vec()
         return observation
 
     def sample(self):
         """
         :return: A random action represented by an integer.
         """
-        return random.randint(0, self.N_ACTIONS - 1)
+        return random.randint(0, N_ACTIONS - 1)
 
 
 class TLSSimulation:

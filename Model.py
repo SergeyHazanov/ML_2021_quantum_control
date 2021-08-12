@@ -1,7 +1,8 @@
 import torch.nn as nn
 import torch
 
-NET_INPUT_SIZE = 10
+NET_INPUT_SIZE = 11
+NET_OUTPUT_SIZE = 27
 
 
 class PolicyNetwork(nn.Module):
@@ -11,7 +12,7 @@ class PolicyNetwork(nn.Module):
         self.layers = nn.Sequential(
             nn.Linear(NET_INPUT_SIZE * 2, 512), nn.ReLU(),
             nn.Linear(512, 128), nn.ReLU(),
-            nn.Linear(128, 9)
+            nn.Linear(128, NET_OUTPUT_SIZE)
         )
 
     def forward(self, state, prev_state):
