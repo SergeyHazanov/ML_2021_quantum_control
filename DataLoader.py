@@ -35,8 +35,8 @@ class GamesMemoryBank(Dataset):
         self.discounted_rewards = []
 
         for r in self.reward_history[::-1]:
-            if r != 0:
-                R = 0  # resetting the reward sum
+            # if r != 0:
+            #     R = 0  # resetting the reward sum
 
             R = r + self.gamma * R
             self.discounted_rewards.insert(0, R)

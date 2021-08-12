@@ -15,7 +15,7 @@ AMP_ERR_FACTOR = 1
 MAX_OMEGA = 1
 MAX_AMP = 1
 
-REACH_TARGET = 2e4
+REACH_TARGET = 1e4
 TOO_LARGE = 1e4
 TIME = 1e2
 FIDELITY_DELTA = 2e2
@@ -57,7 +57,7 @@ class QuantumEnvironment:
         self.runtime = runtime
         self.steps = 0
 
-        self.state = qt.basis(2, 0)
+        self.state = qt.tensor(qt.basis(2, 0), qt.basis(2, 0))
 
         self.ham_theta = 0.0
         self.ham_omega = 0.0
@@ -68,20 +68,35 @@ class QuantumEnvironment:
         amp_list = [-1, 0, 1]
         self.action_lookup = list(itertools.product(omega_list, amp_list))
 
-    def state_to_vec(self):
+    def state_to_vec(self, label='target'):
         """
-        Bloch vector representation of the state self.state
+        Bloch vector representation of the state of the target (index 0) or control (index 1) qubit.
         :return: list of expectation values for the state self.state.
         """
-        x, y, z = qt.expect(sigmax(), self.state), qt.expect(sigmay(), self.state), qt.expect(sigmaz(), self.state)
+        if label == 'target':
+            x, y, z = qt.expect(sigmax(), self.state.ptrace(1)), qt.expect(sigmay(), self.state.ptrace(1)), \
+                      qt.expect(sigmaz(), self.state.ptrace(1))
+        elif label == 'control':
+            x, y, z = qt.expect(sigmax(), self.state.ptrace(0)), qt.expect(sigmay(), self.state.ptrace(0)), \
+                      qt.expect(sigmaz(), self.state.ptrace(0))
+        else:
+            raise Exception('Wrong label! Please use the labels "target" or "control".')
+
         return [x, y, z]
 
-    def fidelity(self):
+    def fidelity(self, label='target'):
         """
         fidelity with respect to |1> (which is the target state)
         :return: F(|ψ>,|1>) of type float.
         """
-        return qt.fidelity(self.state, qt.basis(2, 1))
+        if label == 'target':
+            fidelity = qt.fidelity(self.state.ptrace(1), qt.basis(2, 1))
+        elif label == 'control':
+            fidelity = qt.fidelity(self.state.ptrace(0), qt.basis(2, 1))
+        else:
+            raise Exception('Wrong label! Please use the labels "target" or "control".')
+
+        return fidelity
 
     def step(self, action):
         """
@@ -100,11 +115,13 @@ class QuantumEnvironment:
 
         self.ham_theta += self.ham_omega * self.dt
 
+        g = 1e-2
         hx = self.ham_amp * np.cos(self.ham_theta)
         hy = self.ham_amp * np.sin(self.ham_theta)
         hz = self.energy_gap
 
-        ham_tot = hx * sigmax() + hy * sigmay() + hz * sigmaz()
+        ham_tot = qt.tensor((hx * sigmax() + hy * sigmay() + hz * sigmaz()), qt.identity(2)) \
+                  + g * (qt.tensor(qt.sigmap(), qt.sigmam()) + qt.tensor(qt.sigmam(), qt.sigmap()))
 
         unitary_op = 1 - 1j * ham_tot * self.dt
 
@@ -112,23 +129,35 @@ class QuantumEnvironment:
         curr_fidelity = self.fidelity()
         self.state = (unitary_op * self.state).unit()
 
-        reward = (self.fidelity() - curr_fidelity) * FIDELITY_DELTA
-        # reward -= np.abs(self.ham_omega) * OMEGA_ERR_FACTOR
-        # reward -= np.abs(self.ham_amp) * AMP_ERR_FACTOR
+        delta_fidelity = self.fidelity() - curr_fidelity
+        reward = 1 / (1 - self.fidelity())
+        if delta_fidelity < 0:
+            reward = 0
+        else:
+            reward = (1 + delta_fidelity) * reward
 
-        if np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:
-            reward -= TOO_LARGE
-        if self.fidelity() > 0.99:
-            reward += REACH_TARGET
-            # reward += (1 - (self.runtime/(self.steps * self.dt))) * TIME
-            done = True
-        elif (self.steps * self.dt) >= self.runtime:
+        # reward = (self.fidelity() - curr_fidelity) * FIDELITY_DELTA
+        # # reward -= np.abs(self.ham_omega) * OMEGA_ERR_FACTOR
+        # # reward -= np.abs(self.ham_amp) * AMP_ERR_FACTOR
+        #
+        # if np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:
+        #     reward -= TOO_LARGE
+        # if self.fidelity() > 0.99:
+        #     reward += REACH_TARGET
+        #     # reward += (1 - (self.runtime/(self.steps * self.dt))) * TIME
+        #     done = True
+        # elif (self.steps * self.dt) >= self.runtime:
+        #     done = True
+        # else:
+        #     done = False
+
+        if (self.steps * self.dt) >= self.runtime:
             done = True
         else:
             done = False
 
         # This is what the neural network sees
-        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec()
+        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec() + self.state_to_vec(label='control')
 
         if len(observation) != NET_INPUT_SIZE:
             print('Wrong observation size')
@@ -145,12 +174,7 @@ class QuantumEnvironment:
         :return: 7 parameters of the state and Hamiltonian.
         """
 
-        c1 = 1j * random.random() + random.random()
-        # c2 = 1j * random.random() + random.random()
-        c2 = 0
-
-        psi = c1 * qt.basis(2, 0) + c2 * qt.basis(2, 1)
-        self.state = psi.unit()
+        self.state = qt.tensor(qt.basis(2, 0), qt.basis(2, 0))
 
         self.steps = 0
         self.ham_theta = 0.0
@@ -160,7 +184,7 @@ class QuantumEnvironment:
         hy = 0
         hz = self.energy_gap
 
-        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec()
+        observation = [hx, hy, hz, self.ham_omega] + self.state_to_vec() + self.state_to_vec(label='control')
         return observation
 
     def sample(self):
