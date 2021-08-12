@@ -61,10 +61,11 @@ class GamesMemoryBank(Dataset):
 
         state = torch.stack([self.state_history[idx] for idx in idxs], dim=0)
         previous_state = torch.stack([self.previous_state_history[idx] for idx in idxs], dim=0)
+
         action = torch.stack([torch.tensor(self.action_history[idx]) for idx in idxs])
         action_prob = torch.stack([torch.tensor(self.action_prob_history[idx]) for idx in idxs])
-        reward = torch.stack([torch.tensor(self.reward_history[idx]) for idx in idxs])
 
+        reward = torch.stack([torch.tensor(self.reward_history[idx]) for idx in idxs])
         discounted_reward = torch.stack([self.discounted_rewards[idx] for idx in idxs])
 
         return state, previous_state, action, action_prob, reward, discounted_reward

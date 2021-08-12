@@ -1,5 +1,7 @@
 import numpy as np
+import qutip as qt
 import matplotlib.pyplot as plt
+
 from matplotlib import animation
 
 from DataLoader import GamesMemoryBank
@@ -14,6 +16,7 @@ import torch
 from tqdm import tqdm
 
 import imageio
+
 
 class Trainer:
 
@@ -47,6 +50,9 @@ class Trainer:
         # initialize optimizer
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
 
+        self.decay_rate = kwargs.get('decay_rate', 1)
+        # self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=self.optimizer, gamma=self.decay_rate)
+
     def train(self):
         final_fidelity = []
         running_mean_fid = []
@@ -54,9 +60,6 @@ class Trainer:
         losses = []
         rewards = []
         discounted_rewards = []
-
-        fig, axes = plt.subplots()
-        # [ax.legend() for ax in axes]
 
         for epoch in tqdm(range(self.n_epochs)):
 
@@ -98,7 +101,7 @@ class Trainer:
                       + ' mean fidelity in last '
                       + str(self.games_per_epoch)
                       + ' simulations '
-                      + mean_fid)
+                      + mean_fid.format('%.5f'))
 
             plt.plot(final_fidelity, label='Fidelity', alpha=0.5)
 
@@ -124,11 +127,21 @@ class Trainer:
                 loss = self.loss_func(logits, action, action_p, discounted_reward)
                 losses.append(loss.item())
                 loss.backward()
+
                 self.optimizer.step()
 
                 losses.append(loss.item())
                 rewards.append(torch.mean(reward).item())
-                discounted_rewards.append(torch.mean(discounted_reward).item())
+                discounted_rewards.append(torch.max(discounted_reward).item())
+
+            fig, ax = plt.subplots()
+            # ax[0].plot(losses, label='loss')
+            # ax.plot(rewards, label='rewards')
+            ax.plot(discounted_rewards, label='discounted rewards')
+            ax.legend()
+            plt.show()
+
+            # self.lr_scheduler.step()
 
             torch.save(self.net.state_dict(), self.model_name)
 
@@ -152,13 +165,10 @@ class Trainer:
         s_y = list()
         s_z = list()
 
-        q_states = [self.env.state]
-
         # play a game
         while True:
             action, action_p = self.net.sample_action(state, prev_state)
             new_state, reward, done, info = self.env.step(action)
-            q_states.append(self.env.state)
             state = torch.tensor(new_state, dtype=torch.float).view(-1).unsqueeze(0)
 
             # extract the information from the state to a numpy array
@@ -185,7 +195,8 @@ class Trainer:
             if done:
                 break
 
-        return amps, omega, theta, s_x, s_y, s_z, q_states
+        final_state = self.env.state
+        return amps, omega, theta, s_x, s_y, s_z, final_state
 
     def probe_learning(self):
         """
@@ -194,8 +205,9 @@ class Trainer:
         :return:
         """
 
-        amps, omega, theta, s_x, s_y, s_z, _ = self.play_game()
-
+        amps, omega, theta, s_x, s_y, s_z, final_state = self.play_game()
+        print('Final fidelity is: ' + str(qt.fidelity(qt.basis(2, 1), final_state)))
+        print('P_g = ' + str(np.abs(np.min(final_state.data[0]))**2))
         times = np.arange(0, self.runtime, self.dt)
         times = times[:len(amps)]
         fig, ax = plt.subplots()
@@ -239,10 +251,36 @@ class Trainer:
         [ax.axis('off') for ax in axes]
         plt.show()
 
-    def animate(self):
-        _, _, _, _, _, _, q_states = self.play_game()
+    def create_gif(self, fname):
+        _, _, _, s_x, s_y, s_z, _ = self.play_game()
+        colors = plt.cm.Reds(np.linspace(0, 1, len(s_x)))
 
-        colors = plt.cm.plasma(np.linspace(0, 1, len(q_states)))
+        b = qt.Bloch()
+        b.sphere_color = '#b6bdde'
+        b.vector_color = ['r']
+        b.view = [-40, 30]
+        b.point_color = list(colors)
+        b.point_marker = ['o']
+        b.point_size = [25]
+
+        temp_fname = 'gif_frames/temp.jpeg'
+        images = []
+
+        for i in range(len(s_x)):
+            # Plotting
+            b.clear()
+            b.add_points([s_x[-1], s_y[-1], s_z[-1]])
+            b.add_vectors([s_x[i], s_y[i], s_z[i]])
+            b.add_points([s_x[:i+1], s_y[:i+1], s_z[:i+1]], meth='m')
+
+            # Saving the current picture
+            b.save(temp_fname)
+
+            # Loading the binaries from the picture
+            images.append(imageio.imread(temp_fname))
+
+        # Composing GIF using all the binaries
+        imageio.mimsave(fname, images, fps=60)
 
     def game_animation(self, fig_size, save=False, fps=60):
         def update(num, data_set, line):
@@ -250,7 +288,7 @@ class Trainer:
             line.set_3d_properties(data_set[2, :num])
             return line
 
-        amps, omega, theta, s_x, s_y, s_z = self.play_game()
+        amps, omega, theta, s_x, s_y, s_z, _ = self.play_game()
 
         # THE DATA POINTS
         data_set = np.array([s_x, s_y, s_z])

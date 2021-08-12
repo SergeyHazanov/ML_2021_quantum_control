@@ -17,11 +17,8 @@ FIDELITY_FACTOR = 100
 MAX_OMEGA = 1
 MAX_AMP = 1
 
-HAM_SIZE_FACTOR = 1e4
 REACH_TARGET = 1e4
 TOO_LARGE = 1e4
-
-FAIL_PENALTY = 1e4
 
 N_ACTIONS = 9
 
@@ -92,28 +89,15 @@ class QuantumEnvironment:
         :param action: an integer
         :return:
         """
-        self.steps += 1
 
+        prev_fidelity = self.fidelity()
+
+        self.steps += 1
         if action > (N_ACTIONS - 1) or action < 0 or type(action) is not int:
             raise Exception('Wrong action value!')
         else:
             self.ham_omega += self.action_lookup[action][0] * THETA_BOOST_CONTROL
             self.ham_amp += self.action_lookup[action][1] * AMP_BOOST_CONTROL
-
-        # if action == 0:
-        #     self.ham_omega += THETA_BOOST_CONTROL
-        #     self.ham_amp += AMP_BOOST_CONTROL
-        # elif action == 1:
-        #     self.ham_omega -= THETA_BOOST_CONTROL
-        #     self.ham_amp -= AMP_BOOST_CONTROL
-        # elif action == 2:
-        #     self.ham_omega += THETA_BOOST_CONTROL
-        #     self.ham_amp -= AMP_BOOST_CONTROL
-        # elif action == 3:
-        #     self.ham_omega -= THETA_BOOST_CONTROL
-        #     self.ham_amp += AMP_BOOST_CONTROL
-        # else:
-        #     print('Wrong action value!')
 
         self.ham_theta += self.ham_omega * self.dt
 
@@ -125,27 +109,57 @@ class QuantumEnvironment:
 
         unitary_op = (1 - 1j * ham_tot * self.dt).expm()
 
-        prev_fidelity = self.fidelity()
         self.state = (unitary_op * self.state).unit()
 
-        reward = (self.fidelity() - prev_fidelity) * FIDELITY_FACTOR
-        reward -= np.abs(self.ham_omega) * OMEGA_ERR_FACTOR
-        reward -= self.ham_amp * AMP_ERR_FACTOR
+        # reward = self.fidelity() - prev_fidelity
 
-        if np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:
-            reward -= TOO_LARGE
+        delta_fidelity = self.fidelity() - prev_fidelity
+        reward = 1 / (1 - self.fidelity())
+        if delta_fidelity < 0:
+            reward = 0
+        else:
+            reward = (1 + delta_fidelity) * reward
 
-        if self.fidelity() > 0.99:
-            done = True
-            reward += REACH_TARGET
-            # reward += (1 / (1 + np.sqrt(hx ** 2 + hy ** 2))) * HAM_SIZE_FACTOR
-            # reward += 1 / np.sqrt(hx ** 2 + hy ** 2)
+        # penalty = delta_fidelity * 100 if delta_fidelity < 0 else 0
+        # reward -= penalty
 
-        elif (self.steps * self.dt) >= self.runtime:
-            # reward -= FAIL_PENALTY
+        if (self.steps * self.dt) >= self.runtime:
             done = True
         else:
             done = False
+
+        # reward = (self.fidelity() - prev_fidelity) * FIDELITY_FACTOR
+
+        # reward -= np.abs(self.ham_omega) * OMEGA_ERR_FACTOR
+        # reward -= self.ham_amp * AMP_ERR_FACTOR
+
+        # if np.abs(self.ham_amp) > MAX_AMP or np.abs(self.ham_omega) > MAX_OMEGA:
+        #     reward -= TOO_LARGE
+
+        # if self.fidelity() > 0.99:
+        #     # done = True
+        #     reach_target = True
+        #     reward += REACH_TARGET
+        # else:
+        #     reach_target = False
+
+        # if reach_target:
+        #     reward -= (self.fidelity() - prev_fidelity) * 1e5
+        #     reward += 1e4 / np.sqrt(hx ** 2 + hy ** 2)
+
+        # elif (self.steps * self.dt) >= self.runtime:
+        #     done = True
+        # else:
+        #     done = False
+        # if self.fidelity() > 0.999:
+        #     reward += REACH_TARGET * 10
+        #     done = True
+        # elif (self.steps * self.dt) >= self.runtime:
+        #     done = True
+        # else:
+        #     done = False
+        # if done:
+        #     reward -= np.sqrt(hx ** 2 + hy ** 2) * 1e4
 
         # This is what the neural network sees
         observation = [hx, hy, hz, self.ham_omega] + self.state2vec()
