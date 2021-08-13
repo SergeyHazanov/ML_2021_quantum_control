@@ -115,7 +115,7 @@ class QuantumEnvironment:
 
         # Some useless parameter resulting from a previous implementation where I tried
         # to inherit from gym.env class.
-        info = {}
+        info = self.fidelity(qubit=0)
 
         return observation, reward, done, info
 

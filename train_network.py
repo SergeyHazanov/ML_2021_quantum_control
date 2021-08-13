@@ -7,7 +7,6 @@ from matplotlib import animation
 from DataLoader import GamesMemoryBank
 from policy_loss import PolicyLoss
 from Model import PolicyNetwork, NET_INPUT_SIZE
-from simulation import QuantumEnvironment
 
 from IPython.display import clear_output
 from scipy.ndimage import uniform_filter1d
@@ -22,6 +21,15 @@ class Trainer:
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
+        self.simulation_type = kwargs.get('simulation_type', 'single_qubit')
+        if self.simulation_type == 'single_qubit':
+            from simulation import QuantumEnvironment
+            print('Single-qubit simulation initialized.')
+        elif self.simulation_type == 'two_qubits':
+            from environment import QuantumEnvironment
+            print('Two-qubits simulation initialized.')
+        else:
+            raise Exception('Invalid type of simulation')
 
         # learning parameters
         self.n_epochs = kwargs.get('n_epochs', 300)
@@ -32,7 +40,7 @@ class Trainer:
 
         # quantum environment
         self.dt = kwargs.get('dt', 0.01)
-        self.runtime = kwargs.get('runtime', 15)
+        self.runtime = kwargs.get('runtime', 5)
         self.energy_gap = kwargs.get('energy_gap', 1)
         self.env = QuantumEnvironment(energy_gap=self.energy_gap, runtime=self.runtime, dt=self.dt)
 
@@ -86,7 +94,12 @@ class Trainer:
                     state = torch.tensor(new_state, dtype=torch.float).view(-1).unsqueeze(0)
 
                     if done:
-                        final_fidelity.append(self.env.fidelity())
+                        if self.simulation_type == 'two_qubits':
+                            final_fidelity.append(self.env.fidelity(qubit=1))
+                        elif self.simulation_type == 'single_qubit':
+                            final_fidelity.append(self.env.fidelity())
+                        else:
+                            raise Exception('Invalid simulation type')
                         running_time.append(self.env.steps * self.dt / self.runtime)
                         break
 
@@ -141,7 +154,7 @@ class Trainer:
             # ax2 = ax.twinx()
             # ax2.plot(losses, color='red', label='loss', alpha=0.6)
             # ax2.legend(loc='lower right')
-            ax.legend(loc='lower center')
+            ax.legend(loc='lower right')
             plt.show()
 
             self.lr_scheduler.step()
@@ -363,7 +376,3 @@ def get_sphere(steps=20):
 
     return x, y, z
 
-
-if __name__ == '__main__':
-    train_session = Trainer(**{'runtime': 2, 'load_net': False})
-    train_session.train()
