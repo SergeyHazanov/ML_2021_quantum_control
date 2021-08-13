@@ -12,7 +12,7 @@ class PolicyNetwork(nn.Module):
             nn.Linear(NET_INPUT_SIZE * 2, 1024), nn.ReLU(),
             nn.Linear(1024, 512), nn.ReLU(),
             nn.Linear(512, 256), nn.ReLU(),
-            nn.Linear(256, 9)
+            nn.Linear(256, 27)  # 9 for a single qubit
         )
 
     def forward(self, state, previous_state):

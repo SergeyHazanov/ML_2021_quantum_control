@@ -86,7 +86,8 @@ class QuantumEnvironment:
         ham_tot = hx * qt.tensor(qt.sigmax(), qt.identity(2)) + \
                   hy * qt.tensor(qt.sigmay(), qt.identity(2)) + \
                   hz * qt.tensor(qt.sigmaz(), qt.identity(2)) + \
-                  COUPLING * qt.tensor(qt.sigmax(), qt.sigmaz())
+                  COUPLING * (qt.tensor(qt.sigmam(), qt.sigmap()) + qt.tensor(qt.sigmap(), qt.sigmam()))
+                  # COUPLING * qt.tensor(qt.sigmax(), qt.sigmaz())
 
         unitary_op = (- 1j * ham_tot * self.dt).expm()
 
@@ -94,10 +95,10 @@ class QuantumEnvironment:
 
         delta_fidelity = self.fidelity(qubit=1) - prev_fidelity
         reward = 1 / np.sqrt(1 - self.fidelity(qubit=1))
-        if delta_fidelity < 0:
-            reward = 0
-        else:
-            reward = (1 + delta_fidelity) ** 2 * reward
+        # if delta_fidelity < 0:
+        #     reward = 0
+        # else:
+        #     reward = (1 + delta_fidelity) ** 2 * reward
 
         if self.fidelity(qubit=1) > 0.999:
             done = True
@@ -108,7 +109,7 @@ class QuantumEnvironment:
             done = False
 
         # This is what the neural network sees
-        observation = [hx, hy, hz, self.ham_theta, self.ham_phi] + self.state2vec(qubit=1)
+        observation = [hx, hy, hz, self.ham_theta_dot, self.ham_phi_dot] + self.state2vec(qubit=1)
 
         if len(observation) != NET_INPUT_SIZE:
             print('Wrong observation size')

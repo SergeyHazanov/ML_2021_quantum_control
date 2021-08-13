@@ -157,12 +157,103 @@ class Trainer:
             ax.legend(loc='lower right')
             plt.show()
 
-            self.lr_scheduler.step()
+            # self.lr_scheduler.step()
 
             torch.save(self.net.state_dict(), self.model_name)
 
     def save_net_file(self, fname):
         torch.save(self.net.state_dict(), fname)
+
+    def play_game_2_qubits(self):
+
+        # initialize state for a new game
+        state = self.env.reset()
+        state = torch.tensor(state, dtype=torch.float).unsqueeze(0)
+        prev_state = state
+
+        # initialize lists for stored quantities in the simulation
+        theta = list()
+        theta_dot = list()
+        phi = list()
+        phi_dot = list()
+        amp = list()
+
+        x_control = list()
+        y_control = list()
+        z_control = list()
+
+        x_target = list()
+        y_target = list()
+        z_target = list()
+
+        # play a game
+        while True:
+            action, action_p = self.net.sample_action(state, prev_state)
+            new_state, reward, done, info = self.env.step(action)
+            control_qubit = qt.ptrace(self.env.state, 0)
+
+            state = torch.tensor(new_state, dtype=torch.float).view(-1).unsqueeze(0)
+
+            # extract the information from the state to a numpy array
+            state_data = state[0].numpy()
+
+            # evaluate the current amplitude: sqrt(h_x^2 + h_y^2 + h_z^2)
+            curr_amp = np.sqrt(state_data[0] ** 2 + state_data[1] ** 2 + state_data[2] ** 2)
+            curr_theta_dot = state_data[3]
+            curr_phi_dot = state_data[4]
+
+            # integrate omega to find theta
+            if not theta:
+                curr_theta = curr_theta_dot * self.dt
+                curr_phi = curr_phi_dot * self.dt
+            else:
+                curr_theta = theta[-1] + curr_theta_dot * self.dt
+                curr_phi = phi[-1] + curr_phi_dot * self.dt
+
+            amp.append(curr_amp)
+            theta_dot.append(curr_theta_dot)
+            theta.append(curr_theta)
+            phi_dot.append(curr_phi_dot)
+            phi.append(curr_phi)
+
+            x_target.append(state_data[5])
+            y_target.append(state_data[6])
+            z_target.append(state_data[7])
+
+            x_control.append(qt.expect(control_qubit, qt.sigmax()))
+            y_control.append(qt.expect(control_qubit, qt.sigmay()))
+            z_control.append(qt.expect(control_qubit, qt.sigmaz()))
+
+            if done:
+                break
+
+        return amp, theta, phi,\
+               x_control, y_control, z_control,\
+               x_target, y_target, z_target
+
+    def probe_learning_2_qubits(self):
+        amp, theta, phi, x_control, y_control, z_control, x_target, y_target, z_target = self.play_game_2_qubits()
+        times = np.arange(0, self.runtime, self.dt)
+        times = times[:len(amp)]
+
+        fig, ax = plt.subplots()
+        ax.plot(times, amp, label='amp')
+        ax.plot(times, theta, label=r'$\theta$')
+        ax.plot(times, phi, label=r'$\phi$')
+
+        ax.legend(fontsize=12)
+        plt.show()
+
+        fig, ax = plt.subplots()
+        ax.plot(times, x_control, color='red')
+        ax.plot(times, y_control, color='cornflowerblue')
+        ax.plot(times, z_control, color='limegreen', label=r'$c_z$')
+        ax.plot(times, x_target, color='red', lw=8, alpha=0.15)
+        ax.plot(times, y_target, color='cornflowerblue', lw=8, alpha=0.15)
+        ax.plot(times, z_target, color='limegreen', lw=8, alpha=0.15, label=r'$t_z$')
+
+        ax.legend(fontsize=14)
+        plt.show()
 
     def play_game(self):
         """
@@ -176,8 +267,8 @@ class Trainer:
         prev_state = state
 
         # initialize lists for stored quantities in the simulation
-        omega = list()
         theta = list()
+        omega = list()
         amps = list()
 
         s_x = list()

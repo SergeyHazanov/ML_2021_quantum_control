@@ -8,7 +8,7 @@ import qutip as qt
 class PolicyLoss(nn.Module):
     def __init__(self):
         super().__init__()
-        self.eps_clip = 0.1
+        self.eps_clip = 0.5
 
     def forward(self, logits, action, action_prob, discounted_rewards):
         new_action_prob = F.softmax(logits, dim=1).gather(1, action.unsqueeze(1)).view(-1)
